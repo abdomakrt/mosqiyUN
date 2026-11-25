@@ -3,24 +3,34 @@
 {% block title %}إدارة المساجد{% endblock %}
 
 {% block content %}
-<div class="row align-items-center mb-4">
-    <div class="col-md-6 mb-3 mb-md-0">
-        <h3 class="fw-bold text-dark mb-1">
+<div class="row align-items-center mb-3 mb-md-4 g-3">
+    <div class="col-12 col-md-7">
+        <h3 class="fw-bold text-dark mb-1 page-title-responsive">
             <i class="fa-solid fa-kaaba text-success me-2"></i> إدارة المساجد ({{ mosques|length }})
         </h3>
         <p class="text-muted small mb-0">إضافة وتعديل بيانات المساجد المستهدفة في نظام التوزيع</p>
     </div>
-    <div class="col-md-6 text-md-end">
-        <button class="btn btn-primary btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#addMosqueModal">
+    <div class="col-12 col-md-5 text-md-end">
+        <button class="btn btn-primary btn-sm shadow-sm w-100 w-md-auto btn-touch-mobile px-3" data-bs-toggle="modal" data-bs-target="#addMosqueModal">
             <i class="fa-solid fa-plus me-1"></i> إضافة مسجد جديد
         </button>
     </div>
 </div>
 
+{% if mosques %}
+<div class="search-filter-bar mb-3">
+    <div class="input-group input-group-sm">
+        <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
+        <input type="search" id="mosqueSearchInput" class="form-control border-start-0" placeholder="ابحث باسم المسجد أو الحي..." oninput="filterMosquesList()">
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     <div class="card-body p-0">
         {% if mosques %}
-        <div class="table-responsive">
+        <!-- عرض سطح المكتب -->
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
@@ -34,7 +44,7 @@
                 </thead>
                 <tbody>
                     {% for m in mosques %}
-                    <tr>
+                    <tr class="mosque-filter-item" data-search="{{ m.name|lower }} {{ (m.address or '')|lower }}">
                         <td class="text-muted fw-bold">{{ loop.index }}</td>
                         <td class="fw-bold text-dark fs-6">{{ m.name }}</td>
                         <td>
@@ -63,45 +73,55 @@
                             </form>
                         </td>
                     </tr>
-
-                    <!-- Modal تعديل المسجد -->
-                    <div class="modal fade" id="editModal{{ m.id }}" tabindex="-1">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <form method="POST" action="{{ url_for('edit_mosque', mosque_id=m.id) }}">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title fw-bold">تعديل بيانات المسجد</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                        <div class="mb-3">
-                                            <label class="form-label fw-bold">اسم المسجد *</label>
-                                            <input type="text" name="name" class="form-control" value="{{ m.name }}" required>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label">العنوان / الحي</label>
-                                            <input type="text" name="address" class="form-control" value="{{ m.address }}">
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label">السعة التقديرية</label>
-                                            <input type="number" name="capacity" class="form-control" value="{{ m.capacity }}">
-                                        </div>
-                                        <div class="mb-3">
-                                            <label class="form-label">ملاحظات</label>
-                                            <textarea name="notes" class="form-control" rows="2">{{ m.notes }}</textarea>
-                                        </div>
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">إلغاء</button>
-                                        <button type="submit" class="btn btn-primary">حفظ التعديلات</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+
+        <!-- عرض الجوال (بطاقات) -->
+        <div class="mobile-card-list d-md-none">
+            {% for m in mosques %}
+            <div class="mobile-item-card mosque-filter-item" data-search="{{ m.name|lower }} {{ (m.address or '')|lower }}">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="mobile-item-index">{{ loop.index }}</span>
+                        <div>
+                            <div class="fw-bold text-dark">{{ m.name }}</div>
+                            {% if m.address %}
+                            <div class="text-secondary small mt-1">
+                                <i class="fa-solid fa-location-dot me-1 text-danger"></i>{{ m.address }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if m.capacity %}
+                    <span class="badge bg-secondary-subtle text-secondary border flex-shrink-0">{{ m.capacity }} مصلٍ</span>
+                    {% endif %}
+                </div>
+
+                {% if m.notes %}
+                <div class="bg-light rounded-2 p-2 small text-muted mb-2">
+                    <i class="fa-regular fa-note-sticky me-1"></i> {{ m.notes }}
+                </div>
+                {% endif %}
+
+                <div class="mobile-item-actions">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#editModal{{ m.id }}">
+                        <i class="fa-solid fa-pen-to-square"></i> تعديل
+                    </button>
+                    <form method="POST" action="{{ url_for('delete_mosque', mosque_id=m.id) }}" onsubmit="return confirm('هل أنت متأكد من حذف مسجد {{ m.name }}؟ سيتم حذف تعييناته أيضاً.');">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="fa-solid fa-trash"></i> حذف
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div id="noMosquesMatchMsg" class="p-4 text-center text-muted d-none">
+            <i class="fa-solid fa-magnifying-glass fa-2x mb-2 opacity-50"></i>
+            <div class="small">لا توجد مساجد مطابقة لبحثك.</div>
         </div>
         {% else %}
         <div class="p-5 text-center text-muted">
@@ -113,9 +133,47 @@
     </div>
 </div>
 
+<!-- Modals تعديل المساجد (خارج الجدول لضمان سلامة DOM) -->
+{% for m in mosques %}
+<div class="modal fade" id="editModal{{ m.id }}" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('edit_mosque', mosque_id=m.id) }}">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">تعديل بيانات المسجد</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">اسم المسجد *</label>
+                        <input type="text" name="name" class="form-control" value="{{ m.name }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">العنوان / الحي</label>
+                        <input type="text" name="address" class="form-control" value="{{ m.address }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">السعة التقديرية</label>
+                        <input type="number" inputmode="numeric" name="capacity" class="form-control" value="{{ m.capacity }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">ملاحظات</label>
+                        <textarea name="notes" class="form-control" rows="2">{{ m.notes }}</textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="submit" class="btn btn-primary">حفظ التعديلات</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
 <!-- Modal إضافة مسجد جديد -->
 <div class="modal fade" id="addMosqueModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down modal-dialog-scrollable">
         <div class="modal-content">
             <form method="POST" action="{{ url_for('add_mosque') }}">
                 <div class="modal-header">
@@ -133,7 +191,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">السعة التقديرية للمصلين</label>
-                        <input type="number" name="capacity" class="form-control" placeholder="مثال: 500">
+                        <input type="number" inputmode="numeric" name="capacity" class="form-control" placeholder="مثال: 500">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">ملاحظات إضافية</label>
@@ -148,4 +206,24 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function filterMosquesList() {
+    const query = (document.getElementById('mosqueSearchInput')?.value || '').trim().toLowerCase();
+    const items = document.querySelectorAll('.mosque-filter-item');
+    let visibleCount = 0;
+    items.forEach(item => {
+        const hay = (item.getAttribute('data-search') || '').toLowerCase();
+        const show = !query || hay.includes(query);
+        item.classList.toggle('d-none', !show);
+        if (show) visibleCount++;
+    });
+    const noMsg = document.getElementById('noMosquesMatchMsg');
+    if (noMsg) {
+        noMsg.classList.toggle('d-none', visibleCount > 0);
+    }
+}
+</script>
 {% endblock %}

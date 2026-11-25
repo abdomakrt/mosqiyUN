@@ -4,15 +4,15 @@
 {% block title %}إدارة الخطباء{% endblock %}
 
 {% block content %}
-<div class="row align-items-center mb-4">
-    <div class="col-md-6 mb-3 mb-md-0">
-        <h3 class="fw-bold text-dark mb-1">
+<div class="row align-items-center mb-3 mb-md-4 g-3">
+    <div class="col-12 col-md-7">
+        <h3 class="fw-bold text-dark mb-1 page-title-responsive">
             <i class="fa-solid fa-users text-success me-2"></i> إدارة الخطباء ({{ khatebs|length }})
         </h3>
         <p class="text-muted small mb-0">التحكم في بيانات الخطباء، التفعيل، تفضيلات التوفر، والمساجد المزارة والمستثناة</p>
     </div>
-    <div class="col-md-6 text-md-end">
-        <button type="button" class="btn btn-primary btn-sm shadow-sm" onclick="openAddKhatebModal()">
+    <div class="col-12 col-md-5 text-md-end">
+        <button type="button" class="btn btn-primary btn-sm shadow-sm w-100 w-md-auto btn-touch-mobile px-3" onclick="openAddKhatebModal()">
             <i class="fa-solid fa-user-plus me-1"></i> إضافة خطيب جديد
         </button>
     </div>
@@ -21,15 +21,16 @@
 <!-- بطاقة الخطباء بانتظار التفعيل (Pending) -->
 {% set pending_khatebs = khatebs | selectattr('is_active', 'equalto', 0) | list %}
 {% if pending_khatebs %}
-<div class="card mb-4 border-warning border-start border-4">
-    <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+<div class="card mb-3 mb-md-4 border-warning border-start border-4">
+    <div class="card-header bg-white py-3 border-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h6 class="fw-bold mb-0 text-warning">
-            <i class="fa-solid fa-user-clock me-2"></i> طلبات تسجيل بانتظار التفعيل والموافقة ({{ pending_khatebs|length }})
+            <i class="fa-solid fa-user-clock me-2"></i> طلبات تسجيل / خطباء غير مفعّلين ({{ pending_khatebs|length }})
         </h6>
         <span class="badge bg-warning-subtle text-dark border border-warning">مطلوب اتخاذ إجراء</span>
     </div>
     <div class="card-body p-0">
-        <div class="table-responsive">
+        <!-- عرض سطح المكتب -->
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
@@ -43,7 +44,7 @@
                     {% for pk in pending_khatebs %}
                     <tr>
                         <td class="fw-bold text-dark">{{ pk.name }}</td>
-                        <td>{{ pk.phone }}</td>
+                        <td dir="ltr" class="text-end">{{ pk.phone }}</td>
                         <td class="text-muted small">{{ pk.created_at.strftime('%Y-%m-%d') }}</td>
                         <td class="text-center">
                             <form method="POST" action="{{ url_for('toggle_active_khateb', khateb_id=pk.id) }}" class="d-inline">
@@ -62,6 +63,57 @@
                 </tbody>
             </table>
         </div>
+
+        <!-- عرض الجوال -->
+        <div class="mobile-card-list d-md-none">
+            {% for pk in pending_khatebs %}
+            <div class="mobile-item-card border-warning border-opacity-50">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div class="fw-bold text-dark">{{ pk.name }}</div>
+                    <span class="text-muted small">{{ pk.created_at.strftime('%Y-%m-%d') }}</span>
+                </div>
+                <div class="small mb-2">
+                    <a href="tel:{{ pk.phone }}" class="phone-link">
+                        <i class="fa-solid fa-phone text-success"></i>
+                        <span>{{ pk.phone }}</span>
+                    </a>
+                </div>
+                <div class="mobile-item-actions">
+                    <form method="POST" action="{{ url_for('toggle_active_khateb', khateb_id=pk.id) }}">
+                        <button type="submit" class="btn btn-success btn-sm shadow-sm">
+                            <i class="fa-solid fa-check"></i> موافقة وتفعيل
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('delete_khateb', khateb_id=pk.id) }}" onsubmit="return confirm('رفض وحذف هذا الطلب؟');">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="fa-solid fa-xmark"></i> رفض
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if khatebs %}
+<!-- شريط البحث والفلترة السريعة -->
+<div class="search-filter-bar mb-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-12 col-md-7">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
+                <input type="search" id="khatebSearchInput" class="form-control border-start-0" placeholder="ابحث باسم الخطيب أو رقم الجوال..." oninput="applyKhatebFilters()">
+            </div>
+        </div>
+        <div class="col-12 col-md-5">
+            <div class="btn-group btn-group-sm w-100" role="group" id="khatebStatusFilter">
+                <button type="button" class="btn btn-outline-success active" data-status="all" onclick="setKhatebStatusFilter('all', this)">الكل ({{ khatebs|length }})</button>
+                <button type="button" class="btn btn-outline-success" data-status="active" onclick="setKhatebStatusFilter('active', this)">المفعّلون</button>
+                <button type="button" class="btn btn-outline-success" data-status="inactive" onclick="setKhatebStatusFilter('inactive', this)">المعطلون</button>
+            </div>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -70,7 +122,8 @@
 <div class="card">
     <div class="card-body p-0">
         {% if khatebs %}
-        <div class="table-responsive">
+        <!-- عرض سطح المكتب -->
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
@@ -85,7 +138,7 @@
                 </thead>
                 <tbody>
                     {% for k in khatebs %}
-                    <tr>
+                    <tr class="khateb-filter-item" data-search="{{ k.name|lower }} {{ k.phone }}" data-active="{{ 'active' if k.is_active == 1 else 'inactive' }}">
                         <td class="text-muted fw-bold">{{ loop.index }}</td>
                         <td>
                             <strong class="text-dark fs-6">{{ k.name }}</strong>
@@ -134,7 +187,7 @@
                         </td>
                         <td class="text-center">
                             <div class="dropdown">
-                                <button class="btn btn-light btn-sm dropdown-toggle border" type="button" data-bs-toggle="dropdown">
+                                <button class="btn btn-light btn-sm dropdown-toggle border" type="button" data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'>
                                     خيارات
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
@@ -175,6 +228,84 @@
                 </tbody>
             </table>
         </div>
+
+        <!-- عرض الجوال (بطاقات) -->
+        <div class="mobile-card-list d-md-none">
+            {% for k in khatebs %}
+            <div class="mobile-item-card khateb-filter-item" data-search="{{ k.name|lower }} {{ k.phone }}" data-active="{{ 'active' if k.is_active == 1 else 'inactive' }}">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="mobile-item-index">{{ loop.index }}</span>
+                        <div>
+                            <div class="fw-bold text-dark">{{ k.name }}</div>
+                            <a href="tel:{{ k.phone }}" class="phone-link small mt-1">
+                                <i class="fa-solid fa-phone text-success"></i>
+                                <span>{{ k.phone }}</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="flex-shrink-0">
+                        {% if k.is_active == 1 %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">
+                            <i class="fa-solid fa-circle-check me-1"></i> مفعّل
+                        </span>
+                        {% else %}
+                        <span class="badge bg-secondary-subtle text-secondary border">
+                            <i class="fa-solid fa-pause me-1"></i> معطل
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- شارات التوفر والدورة -->
+                <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
+                    <span class="badge badge-cycle">الدورة {{ k.current_cycle }} • زار {{ k.get_visited_mosques_in_cycle()|length }}</span>
+                    {% if k.availability_mode == 'always' %}
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">كل أسبوع</span>
+                    {% else %}
+                    <span class="badge bg-info-subtle text-info border border-info-subtle">
+                        تناوبي ({% if k.alternate_offset == offset_next %}القادمة{% else %}بعد القادمة{% endif %})
+                    </span>
+                    {% endif %}
+                    {% if k.get_unavailable_dates() %}
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ k.get_unavailable_dates()|length }} غياب</span>
+                    {% endif %}
+                    {% if k.get_forbidden_mosques() %}
+                    <span class="badge bg-secondary-subtle text-secondary border">مستثنى {{ k.get_forbidden_mosques()|length }}</span>
+                    {% endif %}
+                </div>
+
+                <!-- أزرار الإجراءات المباشرة على الجوال -->
+                <div class="mobile-item-actions">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="openEditKhatebModal({{ k.id }})">
+                        <i class="fa-solid fa-pen-to-square"></i> تعديل
+                    </button>
+                    <button type="button" class="btn btn-outline-warning text-dark btn-sm" onclick="openPasswordModal({{ k.id }}, '{{ k.name|e }}')">
+                        <i class="fa-solid fa-key"></i> كلمة مرور
+                    </button>
+                    <form method="POST" action="{{ url_for('toggle_active_khateb', khateb_id=k.id) }}">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                            {% if k.is_active == 1 %}
+                            <i class="fa-solid fa-pause"></i> إيقاف
+                            {% else %}
+                            <i class="fa-solid fa-play text-success"></i> تفعيل
+                            {% endif %}
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('delete_khateb', khateb_id=k.id) }}" onsubmit="return confirm('حذف الشيخ {{ k.name|e }} نهائياً؟');">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="fa-solid fa-trash"></i> حذف
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div id="noKhatebsMatchMsg" class="p-4 text-center text-muted d-none">
+            <i class="fa-solid fa-filter-circle-xmark fa-2x mb-2 opacity-50"></i>
+            <div class="small">لا يوجد خطباء مطابقون لبحثك الحالي.</div>
+        </div>
         {% else %}
         <div class="p-5 text-center text-muted">
             <i class="fa-solid fa-users-slash fa-3x mb-3 text-secondary opacity-50"></i>
@@ -186,7 +317,7 @@
 
 <!-- Modal موحد لإضافة وتعديل الخطيب -->
 <div class="modal fade" id="khatebModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-fullscreen-sm-down modal-dialog-scrollable">
         <div class="modal-content">
             <form method="POST" id="khatebUnifiedForm" action="{{ url_for('add_khateb') }}">
                 <div class="modal-header">
@@ -195,12 +326,12 @@
                 </div>
                 <div class="modal-body">
                     <div class="row">
-                        <div class="col-md-6 mb-3">
+                        <div class="col-12 col-md-6 mb-3">
                             <label class="form-label fw-bold" for="km_name">اسم الخطيب *</label>
                             <input type="text" name="name" id="km_name" class="form-control" placeholder="مثال: الشيخ عبد الرحمن السعدي" required>
                             <small class="text-muted">حروف فقط دون أرقام</small>
                         </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-12 col-md-6 mb-3">
                             <label class="form-label fw-bold" for="km_phone">رقم الجوال *</label>
                             <input type="tel" inputmode="numeric" name="phone" id="km_phone" class="form-control" placeholder="مثال: 0501234567" required>
                             <small class="text-muted">أرقام فقط (من 8 إلى 15 رقماً)</small>
@@ -250,7 +381,7 @@
 
 <!-- Modal تعيين كلمة مرور سريعة -->
 <div class="modal fade" id="passwordModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
         <div class="modal-content">
             <form method="POST" id="quickPasswordForm" action="">
                 <div class="modal-header">
@@ -279,6 +410,33 @@
 const KHATEBS_DATA = {{ khateb_payloads | tojson }};
 const ADD_KHATEB_URL = "{{ url_for('add_khateb') }}";
 const DEFAULT_OFFSET_NEXT = "{{ offset_next }}";
+let currentKhatebStatusFilter = 'all';
+
+function setKhatebStatusFilter(status, btn) {
+    currentKhatebStatusFilter = status;
+    document.querySelectorAll('#khatebStatusFilter button').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    applyKhatebFilters();
+}
+
+function applyKhatebFilters() {
+    const query = (document.getElementById('khatebSearchInput')?.value || '').trim().toLowerCase();
+    const items = document.querySelectorAll('.khateb-filter-item');
+    let visibleCount = 0;
+    items.forEach(item => {
+        const hay = (item.getAttribute('data-search') || '').toLowerCase();
+        const activeState = item.getAttribute('data-active');
+        const matchesQuery = !query || hay.includes(query);
+        const matchesStatus = (currentKhatebStatusFilter === 'all') || (activeState === currentKhatebStatusFilter);
+        const show = matchesQuery && matchesStatus;
+        item.classList.toggle('d-none', !show);
+        if (show) visibleCount++;
+    });
+    const noMsg = document.getElementById('noKhatebsMatchMsg');
+    if (noMsg) {
+        noMsg.classList.toggle('d-none', visibleCount > 0);
+    }
+}
 
 function resetUnifiedModalForm() {
     const form = document.getElementById('khatebUnifiedForm');

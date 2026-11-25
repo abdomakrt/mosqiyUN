@@ -1,0 +1,459 @@
+/* =========================================================
+   موزّع الجمعة - نظام التصميم المتجاوب (Mobile-First UI)
+   ========================================================= */
+
+:root {
+    --mosqiy-primary: #2d6a4f;
+    --mosqiy-primary-dark: #1b4332;
+    --mosqiy-primary-soft: #e8f5e9;
+    --mosqiy-whatsapp: #25d366;
+    --mosqiy-whatsapp-dark: #1ebe5d;
+    --mosqiy-bg: #f4f6f9;
+    --mosqiy-surface: #ffffff;
+    --mosqiy-border: #e2e8f0;
+    --mosqiy-text: #1e293b;
+    --mosqiy-muted: #64748b;
+    --mosqiy-bottom-nav-h: 68px;
+}
+
+html, body {
+    overflow-x: clip;
+    max-width: 100%;
+}
+
+body {
+    font-family: 'Cairo', sans-serif;
+    background-color: var(--mosqiy-bg);
+    color: var(--mosqiy-text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-tap-highlight-color: rgba(45, 106, 79, 0.12);
+}
+
+/* ---------- شريط التنقل العلوي ---------- */
+.navbar-brand {
+    font-weight: 800;
+    color: var(--mosqiy-primary-dark) !important;
+    letter-spacing: -0.4px;
+    font-size: 1.15rem;
+}
+
+.navbar-custom {
+    background-color: var(--mosqiy-surface);
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.nav-link {
+    font-weight: 600;
+    color: #475569;
+    padding: 0.5rem 0.9rem !important;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+}
+
+.nav-link:hover,
+.nav-link.active {
+    color: var(--mosqiy-primary-dark) !important;
+    background-color: var(--mosqiy-primary-soft);
+}
+
+/* ---------- البطاقات والأزرار ---------- */
+.card {
+    border: 1px solid rgba(226, 232, 240, 0.75);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+    background-color: var(--mosqiy-surface);
+}
+
+.card-header {
+    border-top-left-radius: 14px !important;
+    border-top-right-radius: 14px !important;
+}
+
+.btn {
+    border-radius: 10px;
+    font-weight: 600;
+    transition: all 0.18s ease;
+}
+
+.btn-primary {
+    background-color: var(--mosqiy-primary);
+    border-color: var(--mosqiy-primary);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+    background-color: var(--mosqiy-primary-dark);
+    border-color: var(--mosqiy-primary-dark);
+}
+
+.btn-success {
+    background-color: var(--mosqiy-whatsapp);
+    border-color: var(--mosqiy-whatsapp);
+    color: #fff;
+}
+
+.btn-success:hover,
+.btn-success:focus {
+    background-color: var(--mosqiy-whatsapp-dark);
+    border-color: var(--mosqiy-whatsapp-dark);
+    color: #fff;
+}
+
+.badge-cycle {
+    background-color: var(--mosqiy-primary-soft);
+    color: var(--mosqiy-primary-dark);
+    font-weight: 700;
+    font-size: 0.82rem;
+    padding: 0.42em 0.8em;
+    border-radius: 50px;
+}
+
+/* ---------- الجداول (Desktop/Tablet) ---------- */
+.table-responsive {
+    border-radius: 0 0 14px 14px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background: #fff;
+}
+
+.table thead th {
+    background-color: #f8fafc;
+    color: #475569;
+    border-bottom: 2px solid #edf2f7;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+/* ---------- بطاقات العرض على الجوال (Mobile Cards) ---------- */
+.mobile-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.85rem;
+}
+
+.mobile-item-card {
+    background: #ffffff;
+    border: 1px solid var(--mosqiy-border);
+    border-radius: 12px;
+    padding: 0.9rem;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mobile-item-card.is-me {
+    background: #f0fdf4;
+    border-color: #86efac;
+    border-right: 4px solid var(--mosqiy-primary);
+}
+
+.mobile-item-card.is-apologized {
+    background: #fff8f8;
+    border-color: #fecaca;
+}
+
+.mobile-item-index {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.8rem;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.mobile-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.mobile-item-actions > * {
+    flex: 1 1 auto;
+}
+
+.mobile-item-actions .btn,
+.mobile-item-actions form .btn {
+    width: 100%;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+}
+
+.phone-link {
+    text-decoration: none;
+    color: #334155;
+    font-weight: 600;
+    direction: ltr;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.phone-link:hover {
+    color: var(--mosqiy-primary);
+}
+
+/* ---------- شريط شرائح التوزيعات القابل للتمرير على الجوال ---------- */
+.schedule-chips-scroll {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+@media (max-width: 767.98px) {
+    .schedule-chips-scroll {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x proximity;
+        padding-bottom: 0.4rem;
+        scrollbar-width: thin;
+    }
+
+    .schedule-chips-scroll > * {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+    }
+}
+
+/* ---------- مربعات اختيار قابلة للمس (Check Tiles) ---------- */
+.check-tile {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background-color: #ffffff;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+    height: 100%;
+    margin: 0;
+}
+
+.check-tile:hover {
+    border-color: #94a3b8;
+    background-color: #f8fafc;
+}
+
+.check-tile .form-check-input {
+    margin: 0.2rem 0 0 0;
+    float: none;
+    flex-shrink: 0;
+    width: 1.15em;
+    height: 1.15em;
+}
+
+.check-tile:has(.form-check-input:checked) {
+    background-color: #f0fdf4;
+    border-color: #86efac;
+}
+
+.mosque-grid-scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    background-color: #f8fafc;
+}
+
+/* ---------- شريط البحث السريع ---------- */
+.search-filter-bar {
+    background: #ffffff;
+    border: 1px solid var(--mosqiy-border);
+    border-radius: 12px;
+    padding: 0.75rem;
+}
+
+/* ---------- شريط التنقل السفلي للجوال (Mobile Bottom Nav) ---------- */
+.mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    height: var(--mosqiy-bottom-nav-h);
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid #e2e8f0;
+    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.07);
+    z-index: 1035;
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    padding: 0.25rem 0.35rem env(safe-area-inset-bottom, 0.25rem);
+}
+
+.mobile-bottom-link {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    text-decoration: none;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 0.3rem 0.2rem;
+    transition: all 0.18s ease;
+    position: relative;
+}
+
+.mobile-bottom-link i {
+    font-size: 1.15rem;
+}
+
+.mobile-bottom-link.active {
+    color: var(--mosqiy-primary-dark);
+    background-color: var(--mosqiy-primary-soft);
+}
+
+/* ---------- الفوتر ---------- */
+footer {
+    margin-top: auto;
+    background-color: #ffffff;
+    border-top: 1px solid #edf2f7;
+}
+
+/* ---------- أدوات العرض المتجاوبة ---------- */
+@media (min-width: 576px) {
+    .w-sm-auto {
+        width: auto !important;
+    }
+}
+
+@media (min-width: 768px) {
+    .w-md-auto {
+        width: auto !important;
+    }
+}
+
+/* ---------- تعديلات خاصة بشاشات الجوال (< 992px و < 768px) ---------- */
+@media (max-width: 991.98px) {
+    body.has-bottom-nav {
+        padding-bottom: calc(var(--mosqiy-bottom-nav-h) + 8px);
+    }
+
+    .toast-above-nav {
+        bottom: calc(var(--mosqiy-bottom-nav-h) + 12px) !important;
+    }
+
+    .navbar-nav {
+        padding-top: 0.75rem;
+    }
+
+    .nav-item {
+        margin-bottom: 0.25rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .modal-fullscreen-sm-down {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        margin: 0 !important;
+    }
+
+    .modal-fullscreen-sm-down .modal-content {
+        height: 100% !important;
+        max-height: 100% !important;
+        border-radius: 0 !important;
+    }
+}
+
+/* إصلاح التمرير داخل النوافذ المنبثقة عندما يكون <form> بداخل .modal-content */
+.modal-dialog-scrollable .modal-content > form,
+.modal-fullscreen-sm-down .modal-content > form {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+.modal-dialog-scrollable .modal-content > form > .modal-body,
+.modal-fullscreen-sm-down .modal-content > form > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.modal-dialog-scrollable .modal-content > form > .modal-header,
+.modal-dialog-scrollable .modal-content > form > .modal-footer,
+.modal-fullscreen-sm-down .modal-content > form > .modal-header,
+.modal-fullscreen-sm-down .modal-content > form > .modal-footer {
+    flex-shrink: 0;
+}
+
+@media (max-width: 767.98px) {
+    .modal-body .mosque-grid-scroll {
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    .container {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .page-title-responsive {
+        font-size: 1.25rem !important;
+    }
+
+    /* منع تكبير المتصفح التلقائي عند التركيز على الحقول في iOS */
+    input.form-control,
+    select.form-select,
+    textarea.form-control {
+        font-size: 16px;
+        min-height: 44px;
+    }
+
+    input.form-control-sm,
+    select.form-select-sm {
+        font-size: 15px;
+        min-height: 40px;
+    }
+
+    .btn-touch-mobile {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-fullscreen-sm-down .modal-header,
+    .modal-fullscreen-sm-down .modal-footer {
+        padding: 0.85rem 1rem;
+    }
+
+    .modal-fullscreen-sm-down .modal-body {
+        padding: 1rem;
+    }
+
+    .modal-fullscreen-sm-down .modal-footer {
+        gap: 0.5rem;
+    }
+
+    .modal-fullscreen-sm-down .modal-footer .btn {
+        flex: 1 1 0;
+        min-height: 44px;
+    }
+}

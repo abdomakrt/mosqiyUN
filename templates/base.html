@@ -2,7 +2,8 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#1b4332">
     <title>{% block title %}نظام توزيع خطباء الجمعة{% endblock %}</title>
     <!-- Bootstrap 5 RTL -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css">
@@ -12,100 +13,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    
-    <style>
-        body {
-            font-family: 'Cairo', sans-serif;
-            background-color: #f4f6f9;
-            color: #2b2f33;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .navbar-brand {
-            font-weight: 800;
-            color: #1b4332 !important;
-            letter-spacing: -0.5px;
-        }
-        .navbar-custom {
-            background-color: #ffffff;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-        }
-        .nav-link {
-            font-weight: 600;
-            color: #495057;
-            padding: 0.5rem 0.9rem !important;
-            border-radius: 8px;
-            transition: all 0.2s;
-        }
-        .nav-link:hover, .nav-link.active {
-            color: #1b4332 !important;
-            background-color: #e8f5e9;
-        }
-        .card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 3px 12px rgba(0,0,0,0.04);
-            transition: transform 0.2s;
-        }
-        .btn-primary {
-            background-color: #2d6a4f;
-            border-color: #2d6a4f;
-            font-weight: 600;
-            border-radius: 8px;
-        }
-        .btn-primary:hover {
-            background-color: #1b4332;
-            border-color: #1b4332;
-        }
-        .btn-success {
-            background-color: #25d366;
-            border-color: #25d366;
-            color: #fff;
-            font-weight: 600;
-        }
-        .btn-success:hover {
-            background-color: #1ebe5d;
-            border-color: #1ebe5d;
-        }
-        .badge-cycle {
-            background-color: #e8f5e9;
-            color: #1b4332;
-            font-weight: 700;
-            font-size: 0.85rem;
-            padding: 0.4em 0.8em;
-            border-radius: 50px;
-        }
-        .table-responsive {
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-            background: #fff;
-        }
-        .table thead th {
-            background-color: #f8fafc;
-            color: #495057;
-            border-bottom: 2px solid #edf2f7;
-            font-weight: 700;
-        }
-        footer {
-            margin-top: auto;
-            background-color: #ffffff;
-            border-top: 1px solid #edf2f7;
-        }
-        /* Mobile adjustments */
-        @media (max-width: 768px) {
-            .navbar-nav {
-                padding-top: 1rem;
-            }
-            .nav-item {
-                margin-bottom: 0.25rem;
-            }
-        }
-    </style>
+    <!-- التنسيقات المتجاوبة المخصصة -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% if session.get('user_id') %}has-bottom-nav{% endif %}">
 
     <!-- القائمة العلوية -->
     <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
@@ -114,11 +26,35 @@
                 <i class="fa-solid fa-mosque me-2 text-success fs-4"></i>
                 <span>موزّع الجمعة</span>
             </a>
-            
-            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
-                <i class="fa-solid fa-bars-staggered text-success fs-4"></i>
-            </button>
 
+            {% if session.get('user_id') %}
+            <!-- قائمة المستخدم المختصرة للجوال (< lg) -->
+            <div class="d-flex d-lg-none align-items-center gap-2">
+                <div class="dropdown">
+                    <button class="btn btn-light btn-sm border rounded-pill px-2 py-1 dropdown-toggle d-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fa-regular fa-circle-user text-success"></i>
+                        <span class="text-truncate" style="max-width: 120px;">{{ session.get('name', 'المستخدم') }}</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                        <li><span class="dropdown-item-text text-muted small">الدخول كـ: {% if g.is_admin %}مدير النظام{% else %}خطيب{% endif %}</span></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="{{ url_for('logout') }}"><i class="fa-solid fa-arrow-right-from-bracket me-2"></i>تسجيل الخروج</a></li>
+                    </ul>
+                </div>
+            </div>
+            {% else %}
+            <!-- أزرار الدخول والتسجيل للجوال (< lg) -->
+            <div class="d-flex d-lg-none align-items-center gap-2">
+                <a class="btn btn-sm {% if request.endpoint == 'login' %}btn-primary{% else %}btn-outline-primary{% endif %} rounded-pill px-3" href="{{ url_for('login') }}">
+                    <i class="fa-solid fa-right-to-bracket me-1"></i> دخول
+                </a>
+                <a class="btn btn-sm {% if request.endpoint == 'register' %}btn-success{% else %}btn-outline-success{% endif %} rounded-pill px-3" href="{{ url_for('register') }}">
+                    <i class="fa-solid fa-user-plus me-1"></i> تسجيل
+                </a>
+            </div>
+            {% endif %}
+
+            <!-- قائمة سطح المكتب (>= lg) -->
             <div class="collapse navbar-collapse" id="mainNav">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     {% if g.is_admin %}
@@ -187,11 +123,11 @@
     </nav>
 
     <!-- رسائل التنبيهات (Flash Messages) -->
-    <div class="container mt-3">
+    <div class="container mt-2 mt-md-3">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show border-0 shadow-sm" role="alert">
+                    <div class="alert alert-{{ category }} alert-dismissible fade show border-0 shadow-sm mb-2" role="alert">
                         {% if category == 'success' %}<i class="fa-solid fa-circle-check me-2"></i>{% endif %}
                         {% if category == 'danger' %}<i class="fa-solid fa-triangle-exclamation me-2"></i>{% endif %}
                         {% if category == 'warning' %}<i class="fa-solid fa-circle-exclamation me-2"></i>{% endif %}
@@ -205,16 +141,49 @@
     </div>
 
     <!-- محتوى الصفحة -->
-    <main class="container my-4 flex-grow-1">
+    <main class="container py-3 py-md-4 flex-grow-1">
         {% block content %}{% endblock %}
     </main>
 
     <!-- الفوتر -->
-    <footer class="py-3 mt-4 text-center text-muted small">
+    <footer class="py-3 mt-3 text-center text-muted small">
         <div class="container">
             <span>نظام توزيع خطباء الجمعة © 2026 • خوارزمية ذكية وعادلة للدورات التلقائية المستمرة</span>
         </div>
     </footer>
+
+    {% if session.get('user_id') %}
+    <!-- شريط التنقل السفلي للجوال (< lg) -->
+    <nav class="mobile-bottom-nav d-lg-none" aria-label="التنقل السريع">
+        {% if g.is_admin %}
+        <a class="mobile-bottom-link {% if request.endpoint == 'distribution' %}active{% endif %}" href="{{ url_for('distribution') }}">
+            <i class="fa-solid fa-calendar-week"></i>
+            <span>التوزيع</span>
+        </a>
+        <a class="mobile-bottom-link {% if request.endpoint == 'mosques' %}active{% endif %}" href="{{ url_for('mosques') }}">
+            <i class="fa-solid fa-kaaba"></i>
+            <span>المساجد</span>
+        </a>
+        <a class="mobile-bottom-link {% if request.endpoint == 'khutbas' %}active{% endif %}" href="{{ url_for('khutbas') }}">
+            <i class="fa-solid fa-users"></i>
+            <span>الخطباء</span>
+        </a>
+        <a class="mobile-bottom-link {% if request.endpoint == 'settings' %}active{% endif %}" href="{{ url_for('settings') }}">
+            <i class="fa-solid fa-sliders"></i>
+            <span>الإعدادات</span>
+        </a>
+        {% elif g.current_khateb %}
+        <a class="mobile-bottom-link {% if request.endpoint == 'my_portal' %}active{% endif %}" href="{{ url_for('my_portal') }}">
+            <i class="fa-solid fa-mosque"></i>
+            <span>مسجدي وجدولي</span>
+        </a>
+        <a class="mobile-bottom-link {% if request.endpoint == 'my_profile' %}active{% endif %}" href="{{ url_for('my_profile') }}">
+            <i class="fa-solid fa-id-card"></i>
+            <span>إعداداتي وتفضيلاتي</span>
+        </a>
+        {% endif %}
+    </nav>
+    {% endif %}
 
     <!-- Bootstrap 5 Bundle JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

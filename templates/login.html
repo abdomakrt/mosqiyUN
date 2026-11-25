@@ -3,14 +3,14 @@
 {% block title %}تسجيل الدخول | نظام توزيع خطباء الجمعة{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center mt-3 mb-5">
-    <div class="col-md-6 col-lg-5">
+<div class="row justify-content-center mt-2 mt-md-3 mb-4 mb-md-5">
+    <div class="col-12 col-sm-10 col-md-7 col-lg-5">
         <div class="card shadow-sm border-0">
-            <div class="card-header bg-white py-3 border-0 text-center">
+            <div class="card-header bg-white py-3 border-0 text-center px-3 px-sm-4">
                 <i class="fa-solid fa-mosque fa-3x text-success mb-2"></i>
-                <h4 class="fw-bold text-dark mb-0">نظام توزيع خطباء الجمعة</h4>
-                <p class="text-muted small">يرجى اختيار نوع الحساب للمتابعة</p>
-                
+                <h4 class="fw-bold text-dark mb-1">نظام توزيع خطباء الجمعة</h4>
+                <p class="text-muted small mb-0">يرجى اختيار نوع الحساب للمتابعة</p>
+
                 <!-- تبديل نوع الدخول -->
                 <ul class="nav nav-pills nav-fill bg-light p-1 rounded-pill mt-3" id="loginTabs" role="tablist">
                     <li class="nav-item" role="presentation">
@@ -26,9 +26,9 @@
                 </ul>
             </div>
 
-            <div class="card-body p-4 pt-2">
+            <div class="card-body p-3 p-sm-4 pt-2">
                 <div class="tab-content" id="loginTabsContent">
-                    
+
                     <!-- نموذج دخول المدير -->
                     <div class="tab-pane fade show active" id="admin-login" role="tabpanel">
                         <form method="POST" action="{{ url_for('login') }}">
@@ -39,9 +39,8 @@
                                     <span class="input-group-text bg-light"><i class="fa-solid fa-lock text-muted"></i></span>
                                     <input type="password" name="password" class="form-control" placeholder="أدخل كلمة مرور الإدارة" required autofocus>
                                 </div>
-                                <small class="text-muted">الافتراضي عند أول تشغيل: <code>admin123</code></small>
                             </div>
-                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm">
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm btn-touch-mobile">
                                 <i class="fa-solid fa-right-to-bracket me-2"></i> دخول لوحة الإدارة
                             </button>
                         </form>
@@ -55,7 +54,7 @@
                                 <label class="form-label fw-bold">رقم الجوال</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fa-solid fa-phone text-muted"></i></span>
-                                    <input type="text" name="phone" class="form-control" placeholder="مثال: 0501234567" required>
+                                    <input type="tel" inputmode="numeric" name="phone" class="form-control" placeholder="مثال: 0501234567" required>
                                 </div>
                             </div>
                             <div class="mb-3">
@@ -65,7 +64,7 @@
                                     <input type="password" name="password" class="form-control" placeholder="كلمة المرور الخاصة بك" required>
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-success w-100 py-2 fw-bold shadow-sm">
+                            <button type="submit" class="btn btn-success w-100 py-2 fw-bold shadow-sm btn-touch-mobile">
                                 <i class="fa-solid fa-arrow-right-to-bracket me-2"></i> دخول الخطيب
                             </button>
                             <div class="text-center mt-3">

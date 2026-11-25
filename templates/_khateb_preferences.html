@@ -2,14 +2,14 @@
 
 {% macro render_availability_fields(id_prefix, mode_val='always', offset_val=0, offset_next=0, offset_after_next=1, next_friday=None, after_next_friday=None) %}
 <div class="row">
-    <div class="col-md-6 mb-3">
+    <div class="col-12 col-md-6 mb-3">
         <label class="form-label fw-bold" for="{{ id_prefix }}_availability_mode">نظام التوفر للخطابة</label>
         <select name="availability_mode" id="{{ id_prefix }}_availability_mode" class="form-select availability-mode-select" data-target="{{ id_prefix }}_alternate_wrap">
             <option value="always" {% if mode_val == 'always' %}selected{% endif %}>متاح كل أسبوع دائماً</option>
             <option value="alternate" {% if mode_val == 'alternate' %}selected{% endif %}>أسبوع بعد أسبوع (تناوبي)</option>
         </select>
     </div>
-    <div class="col-md-6 mb-3 {% if mode_val != 'alternate' %}d-none{% endif %}" id="{{ id_prefix }}_alternate_wrap">
+    <div class="col-12 col-md-6 mb-3 {% if mode_val != 'alternate' %}d-none{% endif %}" id="{{ id_prefix }}_alternate_wrap">
         <label class="form-label fw-bold" for="{{ id_prefix }}_alternate_offset">أسبوع بداية التناوب</label>
         <select name="alternate_offset" id="{{ id_prefix }}_alternate_offset" class="form-select">
             <option value="{{ offset_next }}" {% if offset_val == offset_next %}selected{% endif %}>
@@ -28,10 +28,10 @@
 {% macro render_unavailable_fridays_picker(id_prefix, upcoming_fridays, extended_fridays, selected_dates=[]) %}
 {% set upcoming_set = upcoming_fridays | map(attribute='date_str') | list %}
 <div class="mb-3">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center gap-2 mb-2">
         <label class="form-label fw-bold mb-0">جمعات عدم الإتاحة (الاعتذار المسبق بالاختيار)</label>
         {% if extended_fridays %}
-        <select class="form-select form-select-sm extended-friday-select" style="width: auto; min-width: 195px;" data-prefix="{{ id_prefix }}">
+        <select class="form-select form-select-sm extended-friday-select w-100 w-sm-auto" style="min-width: 195px;" data-prefix="{{ id_prefix }}">
             <option value="">+ إضافة جمعة أبعد...</option>
             {% for ef in extended_fridays %}
             <option value="{{ ef.date_str }}">{{ ef.label }}</option>
@@ -40,15 +40,15 @@
         {% endif %}
     </div>
 
-    <div class="border rounded p-2 bg-light-subtle" id="{{ id_prefix }}_unavailable_container">
+    <div class="border rounded-3 p-2 bg-light-subtle" id="{{ id_prefix }}_unavailable_container">
         <div class="row g-2">
             {% for f in upcoming_fridays %}
-            <div class="col-6 col-md-4">
-                <div class="form-check">
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="form-check check-tile">
                     <input class="form-check-input unavailable-date-cb" type="checkbox" name="unavailable_dates"
                            value="{{ f.date_str }}" id="{{ id_prefix }}_unavail_{{ f.date_str }}"
                            {% if f.date_str in selected_dates %}checked{% endif %}>
-                    <label class="form-check-label small" for="{{ id_prefix }}_unavail_{{ f.date_str }}">
+                    <label class="form-check-label small w-100 d-flex justify-content-between align-items-center gap-1" for="{{ id_prefix }}_unavail_{{ f.date_str }}">
                         <span class="fw-semibold">{{ f.date_str }}</span>
                         {% if loop.index == 1 %}
                         <span class="badge bg-success-subtle text-success border border-success-subtle">القادمة</span>
@@ -64,10 +64,10 @@
         <div class="d-flex flex-wrap gap-2 mt-2" id="{{ id_prefix }}_extra_unavail_chips">
             {% for d in selected_dates %}
                 {% if d not in upcoming_set %}
-                <span class="badge bg-warning-subtle text-dark border border-warning d-inline-flex align-items-center gap-2 px-2 py-1 extra-unavail-chip" data-date="{{ d }}">
+                <span class="badge bg-warning-subtle text-dark border border-warning d-inline-flex align-items-center gap-2 px-2 py-2 extra-unavail-chip" data-date="{{ d }}">
                     <input type="hidden" name="unavailable_dates" value="{{ d }}">
                     <span>{{ d }}</span>
-                    <button type="button" class="btn-close btn-close-sm" style="font-size: 0.6rem;" aria-label="إزالة" onclick="this.closest('.extra-unavail-chip').remove()"></button>
+                    <button type="button" class="btn-close btn-close-sm" style="font-size: 0.65rem;" aria-label="إزالة" onclick="this.closest('.extra-unavail-chip').remove()"></button>
                 </span>
                 {% endif %}
             {% endfor %}
@@ -85,28 +85,30 @@
     <div class="text-muted small mb-2">{{ hint }}</div>
     {% endif %}
     {% if mosques %}
-    <div class="row g-2 border rounded p-2" style="max-height: 185px; overflow-y: auto;">
-        {% for m in mosques %}
-        {% set is_locked = m.id in system_locked_ids %}
-        <div class="col-md-6">
-            <div class="form-check">
-                <input class="form-check-input {{ css_class }}" type="checkbox"
-                       name="{{ field_name }}" value="{{ m.id }}"
-                       id="{{ id_prefix }}_{{ field_name }}_{{ m.id }}"
-                       {% if m.id in selected_ids or is_locked %}checked{% endif %}
-                       {% if is_locked %}disabled{% endif %}>
-                <label class="form-check-label small" for="{{ id_prefix }}_{{ field_name }}_{{ m.id }}">
-                    {{ m.name }}
-                    {% if is_locked %}
-                    <span class="badge bg-success-subtle text-success border border-success-subtle ms-1">موزع بالنظام</span>
-                    {% endif %}
-                </label>
+    <div class="border rounded-3 p-2 mosque-grid-scroll">
+        <div class="row g-2">
+            {% for m in mosques %}
+            {% set is_locked = m.id in system_locked_ids %}
+            <div class="col-12 col-md-6">
+                <div class="form-check check-tile">
+                    <input class="form-check-input {{ css_class }}" type="checkbox"
+                           name="{{ field_name }}" value="{{ m.id }}"
+                           id="{{ id_prefix }}_{{ field_name }}_{{ m.id }}"
+                           {% if m.id in selected_ids or is_locked %}checked{% endif %}
+                           {% if is_locked %}disabled{% endif %}>
+                    <label class="form-check-label small w-100" for="{{ id_prefix }}_{{ field_name }}_{{ m.id }}">
+                        {{ m.name }}
+                        {% if is_locked %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle ms-1">موزع بالنظام</span>
+                        {% endif %}
+                    </label>
+                </div>
             </div>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
     {% else %}
-    <div class="text-muted small border rounded p-2">لا توجد مساجد مسجلة حالياً.</div>
+    <div class="text-muted small border rounded-3 p-2">لا توجد مساجد مسجلة حالياً.</div>
     {% endif %}
 </div>
 {% endmacro %}
@@ -134,7 +136,7 @@ function addExtraUnavailableChip(prefix, dateStr) {
     if (container.querySelector(`.extra-unavail-chip[data-date="${dateStr}"]`)) return;
 
     const chip = document.createElement('span');
-    chip.className = 'badge bg-warning-subtle text-dark border border-warning d-inline-flex align-items-center gap-2 px-2 py-1 extra-unavail-chip';
+    chip.className = 'badge bg-warning-subtle text-dark border border-warning d-inline-flex align-items-center gap-2 px-2 py-2 extra-unavail-chip';
     chip.setAttribute('data-date', dateStr);
 
     const hidden = document.createElement('input');
@@ -148,7 +150,7 @@ function addExtraUnavailableChip(prefix, dateStr) {
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'btn-close';
-    closeBtn.style.fontSize = '0.6rem';
+    closeBtn.style.fontSize = '0.65rem';
     closeBtn.setAttribute('aria-label', 'إزالة');
     closeBtn.addEventListener('click', () => chip.remove());
 
