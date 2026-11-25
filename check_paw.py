@@ -74,15 +74,14 @@ except Exception as e:
 print()
 print('3) التطبيق وقاعدة البيانات')
 try:
-    from app import app, db
+    from app import app, db, ensure_schema
     check('استيراد التطبيق', True)
     with app.app_context():
         db.create_all()
-        from migrate import run_migrations
-        run_migrations(verbose=False)
-        check('الترحيل (migrate)', True)
+        ensure_schema()
+        check('تهيئة الجداول (ensure_schema)', True)
 
-        from app import Mosque, Khateb, Assignment, WeeklySchedule, AppSetting
+        from models import Mosque, Khateb, Assignment, WeeklySchedule, AppSetting
         check('جدول المساجد', Mosque.query.count() is not None, '%d مسجد' % Mosque.query.count())
         check('جدول الخطباء', Khateb.query.count() is not None, '%d خطيب' % Khateb.count() if hasattr(Khateb, 'count') else '%d خطيب' % Khateb.query.count())
         check('جدول التعيينات', Assignment.query.count() is not None, '%d تعيين' % Assignment.query.count())

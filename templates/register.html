@@ -1,68 +1,86 @@
 {% extends "base.html" %}
+{% from "_khateb_preferences.html" import render_availability_fields, render_unavailable_fridays_picker, render_mosque_checkbox_grid, render_preferences_scripts %}
 
-{% block title %}تسجيل خطيب جديد - نظام توزيع الخطباء{% endblock %}
+{% block title %}تسجيل خطيب جديد | نظام توزيع الجمعة{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="text-center mb-4">
-            <h1><i class="fas fa-user-plus"></i> تسجيل خطيب جديد</h1>
-            <p class="text-muted">أنشئ حسابك — سيُفعَّل بعد موافقة مدير النظام</p>
-        </div>
-    </div>
-</div>
+<div class="row justify-content-center mt-3 mb-5">
+    <div class="col-md-9 col-lg-7">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 border-0 text-center">
+                <i class="fa-solid fa-user-plus fa-3x text-success mb-2"></i>
+                <h4 class="fw-bold text-dark mb-1">تسجيل خطيب جديد</h4>
+                <p class="text-muted small">املأ البيانات أدناه لإنشاء حسابك وإرساله للإدارة للموافقة والتفعيل</p>
+            </div>
 
-<div class="row justify-content-center">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-4">
-
-                <form method="POST" action="{{ url_for('register') }}" novalidate>
-                    <div class="mb-3">
-                        <label for="regName" class="form-label">الاسم <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="regName" name="name" maxlength="200"
-                               placeholder="الاسم الكامل" required autocomplete="name">
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="regPhone" class="form-label">رقم الجوال <span class="text-danger">*</span></label>
-                        <input type="tel" class="form-control" id="regPhone" name="phone" inputmode="numeric"
-                               placeholder="مثال: 0501234567" required autocomplete="tel">
-                        <small class="text-muted">رقم الجوال الذي ستستخدمه مع كلمة المرور لتسجيل الدخول</small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="regPassword" class="form-label">كلمة المرور <span class="text-danger">*</span></label>
-                        <input type="password" class="form-control" id="regPassword" name="password" minlength="6"
-                               placeholder="6 أحرف على الأقل" required autocomplete="new-password">
-                        <small class="text-muted">اختر كلمة مرور من اختيارك — لا يراها أحد غيرك</small>
-                    </div>
-
-                    <div class="mb-4">
-                        <label for="regConfirm" class="form-label">تأكيد كلمة المرور</label>
-                        <input type="password" class="form-control" id="regConfirm" name="confirm_password" minlength="6"
-                               placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
-                    </div>
-
-                    <button type="submit" class="btn btn-success w-100">
-                        <i class="fas fa-user-plus"></i> تسجيل الطلب
-                    </button>
-                    <small class="text-muted d-block mt-2 text-center">
-                        بعد التسجيل ستنتقل لصفحة تكمل فيها بياناتك (موضوع الخطبة والمساجد ونظام التوفر)،
-                        ثم بانتظار موافقة مدير النظام.
-                    </small>
-                </form>
-
-                <hr class="my-4">
-
-                <div class="text-center">
-                    <a href="{{ url_for('login') }}" class="text-decoration-none">
-                        <i class="fas fa-arrow-right"></i> العودة لتسجيل الدخول
-                    </a>
+            <div class="card-body p-4 pt-1">
+                <div class="alert alert-warning border-0 small py-2 mb-3">
+                    <i class="fa-solid fa-circle-info me-1"></i> <strong>ملاحظة:</strong> لن يتم إدراجك في جداول التوزيع ولن تظهر في النظام إلا بعد مراجعة الإدارة وتفعيل حسابك.
                 </div>
 
+                <form method="POST" action="{{ url_for('register') }}" id="registerForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold" for="reg_name">الاسم الرباعي واللقب *</label>
+                            <input type="text" name="name" id="reg_name" class="form-control" placeholder="مثال: الشيخ عبد الله بن عبد العزيز السالم" required>
+                            <small class="text-muted">حروف فقط دون أرقام</small>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold" for="reg_phone">رقم الجوال * (لتسجيل الدخول)</label>
+                            <input type="tel" inputmode="numeric" name="phone" id="reg_phone" class="form-control" placeholder="مثال: 0501234567" required>
+                            <small class="text-muted">أرقام فقط (من 8 إلى 15 رقماً)</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" for="reg_password">كلمة المرور *</label>
+                        <input type="password" name="password" id="reg_password" class="form-control" placeholder="اختر كلمة مرور لحسابك" required>
+                    </div>
+
+                    {{ render_availability_fields('reg', 'always', offset_next, offset_next, offset_after_next, next_friday, after_next_friday) }}
+
+                    {{ render_unavailable_fridays_picker('reg', upcoming_fridays, extended_fridays, []) }}
+
+                    {% if mosques %}
+                    {{ render_mosque_checkbox_grid(
+                        'reg',
+                        'initial_visited_mosques',
+                        'المساجد التي زرتها مؤخراً قبل التسجيل (تُحسب ضمن دورتك الأولى)',
+                        'إذا كنت قد خطبت في بعض المساجد مسبقاً، حددها هنا لتُحتسب ضمن الدورة الأولى في التطبيق.',
+                        mosques
+                    ) }}
+
+                    {{ render_mosque_checkbox_grid(
+                        'reg',
+                        'forbidden_mosques',
+                        'المساجد التي يتعذر عليك الخطبة فيها (إن وجدت)',
+                        '',
+                        mosques
+                    ) }}
+                    {% endif %}
+
+                    <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm mb-3">
+                        <i class="fa-solid fa-paper-plane me-2"></i> إرسال طلب التسجيل
+                    </button>
+
+                    <div class="text-center">
+                        <a href="{{ url_for('login') }}" class="small text-muted text-decoration-none">
+                            لديك حساب بالفعل؟ <span class="text-success fw-bold">تسجيل الدخول هنا</span>
+                        </a>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ render_preferences_scripts() }}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    attachKhatebFormValidation(document.getElementById('registerForm'));
+});
+</script>
 {% endblock %}

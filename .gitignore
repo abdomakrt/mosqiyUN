@@ -77,3 +77,7 @@ instance/
 .env.*
 !.env.example
 
+# ملاحظات وأدوات محلية
+.obsidian/
+تنبيهات
+

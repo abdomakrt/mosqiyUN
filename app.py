@@ -1,2780 +1,998 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-نظام توزيع الخطباء على المساجد
-作者: MiniMax Agent
+نظام توزيع خطباء الجمعة على المساجد (Clean Mosqiy)
+تطبيق خفيف، عالي الكفاءة، متجاوب 100% مع الجوال والشاشات.
 """
-
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, date, timedelta
-from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import inspect as sa_inspect
-import json
 import os
 import re
-import secrets
+import json
 import shutil
-import sqlite3
-import sys
-import tempfile
-from dataclasses import dataclass
-from typing import List, Dict, Optional
+from datetime import datetime, date, timedelta
+from functools import wraps
 from urllib.parse import quote
 
-# مسار مجلد المشروع (لاستيراد migrate)
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_DIR not in sys.path:
-    sys.path.insert(0, PROJECT_DIR)
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    flash, session, jsonify, send_file, g
+)
+
+from models import (
+    db, Mosque, Khateb, Assignment, WeeklySchedule, AppSetting,
+    get_friday_week_index
+)
+from engine import DistributionEngine
 
 app = Flask(__name__)
 
-# ============================================
-# الإعدادات ومفاتيح التشغيل
-# ============================================
-# المفاتيح تُقرأ من متغيرات البيئة. القيم الافتراضية للتطوير فقط.
-DEV_SECRET_KEY = 'خطبة_توزيع_مفاتيح_سرية_2025'
-DEV_ADMIN_PASSWORD = 'admin123'
-
-SECRET_KEY = os.environ.get('SECRET_KEY') or DEV_SECRET_KEY
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or DEV_ADMIN_PASSWORD
-
-app.secret_key = SECRET_KEY
-app.config['SECRET_KEY'] = SECRET_KEY
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///khutba_distribution.db'
+# الإعدادات
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'mosqiy-secret-key-2026-safe')
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
+os.makedirs(INSTANCE_DIR, exist_ok=True)
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(INSTANCE_DIR, 'khutba_distribution.db')}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['TEMPLATES_AUTO_RELOAD'] = True
-# أمان الجلسة
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
-app.config['PERMANENT_SESSION_LIFETIME'] = 12 * 3600
 
-db = SQLAlchemy(app)
+db.init_app(app)
 
-
-def warn_dev_defaults():
-    """تحذير في السجل عند استخدام القيم الافتراضية للتطوير"""
-    if not os.environ.get('SECRET_KEY'):
-        print('[تحذير] متغير البيئة SECRET_KEY غير مضبوط - يُستخدم مفتاح تطوير افتراضي. غيّره قبل النشر!')
-    if not os.environ.get('ADMIN_PASSWORD'):
-        print('[تحذير] متغير البيئة ADMIN_PASSWORD غير مضبوط - تُستخدم كلمة مرور تطوير افتراضية. غيّرها قبل النشر!')
-
-# ============================================
-# المصادقة والصلاحيات (دوران فقط: مدير / خطيب)
-# ============================================
-
-ARABIC_INDIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
-
-def normalize_phone(phone):
-    """توحيد صيغة رقم الجوال (مثال: 0501234567 أو +966501234567 -> 966501234567) مع دعم الأرقام العربية"""
-    if not phone:
-        return ''
-    cleaned = str(phone).translate(ARABIC_INDIC_DIGITS)
-    digits = re.sub(r'\D', '', cleaned)
-    if digits.startswith('00'):
-        digits = digits[2:]
-    if digits.startswith('966'):
-        return digits
-    if digits.startswith('0'):
-        return '966' + digits[1:]
-    if len(digits) == 9 and digits.startswith('5'):
-        return '966' + digits
-    return digits
+engine = DistributionEngine()
 
 
-def whatsapp_link(phone, name, message=None):
-    """رابط واتساب جاهز (بدون أي API) لطلب موضوع جديد"""
-    number = normalize_phone(phone)
-    if not number:
-        return ''
-    if not message:
-        message = (
-            'السلام عليكم الشيخ %s،\n'
-            'لقد انتهيت من جميع المساجد بالموضوع الحالي، '
-            'فيرجى إرسال موضوع خطبة جديد للاعتماد. شكراً لك.\n'
-            'نظام توزيع الخطباء' % name
-        )
-    return 'https://wa.me/%s?text=%s' % (number, quote(message))
-
-
-ADMIN_PASSWORD_KEY = 'admin_password_hash'
-
-# أوضاع طلب الموضوع الجديد من الخطيب
-TOPIC_MODE_RESET = 'reset'              # إعادة التعيين على جميع المساجد من جديد
-TOPIC_MODE_AFTER_CURRENT = 'after_current'  # الموضوع القادم بعد إنهاء المساجد الحالية
-
-# مناسبات إسلامية مقترحة للموضوع الموسمي (يمكن للخطيب كتابة غيرها)
-SEASONAL_OCCASIONS = [
-    'رأس السنة الهجرية',
-    'هجرة النبي ﷺ',
-    'يوم عرفة',
-    'العشر من ذي الحجة',
-    'عاشوراء',
-    'المولد النبوي',
-    'ليلة القدر',
-    'الأيام العشر من رمضان',
-    'عيد الفطر',
-    'عيد الأضحى',
-]
-
-
-def khateb_upcoming_sermon_dates(khateb):
-    """تواريخ خطب الخطيب القادمة (تعيناته غير الملغاة من اليوم فصاعداً)"""
-    assignments = Assignment.query.filter(
-        Assignment.khateb_id == khateb.id,
-        Assignment.week_date >= date.today(),
-        Assignment.status != 'cancelled'
-    ).order_by(Assignment.week_date.asc()).all()
-    return [a.week_date for a in assignments]
-
-
-def seasonal_window(khateb, weeks):
-    """حساب نافذة الموضوع الموسمي: (البداية، النهاية)
-
-    النهاية = تاريخ آخر خطبة مشمولة (خطبة واحدة أو خطبتان من خطب الخطيب القادمة).
-    إن لم تكن له تعيينات بعد، تُحسب على أساس الجمعة التي يوزّع عليها النظام افتراضياً.
-    """
-    try:
-        count = int(weeks)
-    except (TypeError, ValueError):
-        count = 1
-    count = max(1, min(2, count))
-
-    engine = DistributionEngine()
-    default_friday = engine.get_next_friday(engine.get_current_friday())
-    upcoming = khateb_upcoming_sermon_dates(khateb)
-
-    if len(upcoming) >= count:
-        end = upcoming[count - 1]
-    elif upcoming:
-        end = max(upcoming[-1], default_friday + timedelta(days=7 * (count - 1)))
-    else:
-        end = default_friday + timedelta(days=7 * (count - 1))
-
-    start = upcoming[0] if upcoming else default_friday
-    return start, end
-
-
-def apply_seasonal_to_assignments(khateb, topic, first_friday, last_friday):
-    """تحديث موضوع التعيينات المستقبلية للخطيب ضمن نافذة الموسم فقط"""
-    assignments = Assignment.query.filter(
-        Assignment.khateb_id == khateb.id,
-        Assignment.week_date >= first_friday,
-        Assignment.week_date <= last_friday,
-        Assignment.status != 'cancelled'
-    ).all()
-
-    for assignment in assignments:
-        assignment.khutba_topic = topic
-        db.session.add(assignment)
-    return len(assignments)
-
-
-def activate_new_topic(khateb, topic):
-    """تفعيل موضوع جديد للخطيب: تعيين الموضوع + تصفير المساجد المزارة"""
-    khateb.current_topic = topic
-    khateb.pending_topic = None
-    khateb.pending_topic_mode = None
-    khateb.pending_topic_approved = 0
-    khateb.mosques_visited = json.dumps([])
-    khateb.last_topic_change = datetime.utcnow()
-    # الموضوع الجديد هو البداية الجديدة => يُلغى أي موضوع موسمي قائم
-    khateb.seasonal_topic = None
-    khateb.seasonal_until = None
-    db.session.add(khateb)
-    return khateb
-
-
-def maybe_activate_queued_topic(khateb):
-    """إذا كان هناك موضوع معتمد مجدول (بعد_current) وتم إنهاء جميع المساجد => يُفعَّل تلقائياً"""
-    if not khateb.pending_topic:
-        return False
-    if khateb.pending_topic_mode != TOPIC_MODE_AFTER_CURRENT:
-        return False
-    if not khateb.pending_topic_approved:
-        return False
-
-    total_mosques = Mosque.query.count()
-    if not total_mosques:
-        return False
-    if len(khateb.get_visited_mosques_list()) < total_mosques:
-        return False
-
-    activate_new_topic(khateb, khateb.pending_topic)
-    db.session.commit()
-    return True
-
-
-def verify_admin_password(password):
-    """التحقق من كلمة مرور المدير.
-
-    - إذا كانت هناك كلمة مرور مخزّنة في قاعدة البيانات (غيّرها من الإعدادات) فهي المعتمدة
-    - وإلا تُستخدم كلمة المرور من متغير البيئة ADMIN_PASSWORD
-    """
-    if not password:
-        return False
-
-    stored = None
-    try:
-        stored = AppSetting.get(ADMIN_PASSWORD_KEY)
-    except Exception:
-        stored = None
-
-    if stored:
-        try:
-            return check_password_hash(stored, password)
-        except Exception:
-            return False
-
-    return password == ADMIN_PASSWORD
-
-
-def admin_password_source():
-    """مصدر كلمة مرور المدير الحالية: 'database' أو 'environment'"""
-    try:
-        return 'database' if AppSetting.get(ADMIN_PASSWORD_KEY) else 'environment'
-    except Exception:
-        return 'environment'
-
-
-# ---------- إدارة الجلسة ----------
-
-def is_logged_in():
-    return bool(session.get('role'))
-
-
-def current_role():
-    return session.get('role')
-
+# ====================================================
+# دوال إدارة الجلسة والمصادقة (Authentication Helpers)
+# ====================================================
 
 def is_admin():
     return session.get('role') == 'admin'
 
-
 def current_khateb():
-    """الخطيب الذي سجّل دخوله حالياً (إن كان معروفاً)"""
-    if session.get('role') != 'khateb':
-        return None
-    return Khateb.query.get(session.get('khateb_id'))
-
-
-def login_admin():
-    session.clear()
-    session['role'] = 'admin'
-
-
-def login_khateb(khateb_id):
-    session.clear()
-    session['role'] = 'khateb'
-    session['khateb_id'] = khateb_id
-
-
-def logout_session():
-    session.clear()
-
-
-# ---------- الـ Decorators ----------
-
-def _wants_json():
-    return request.path.startswith('/api/') or request.is_json
-
+    if session.get('role') == 'khateb' and session.get('khateb_id'):
+        return db.session.get(Khateb, session['khateb_id'])
+    return None
 
 def login_required(f):
-    """يتطلب تسجيل دخول (مدير أو خطيب)"""
     @wraps(f)
-    def decorated(*args, **kwargs):
-        if not is_logged_in():
-            if _wants_json():
-                return jsonify({'success': False, 'message': 'يجب تسجيل الدخول أولاً'}), 401
-            flash('يرجى تسجيل الدخول للمتابعة', 'error')
+    def decorated_function(*args, **kwargs):
+        if not session.get('user_id'):
+            flash('يرجى تسجيل الدخول أولاً للوصول إلى هذه الصفحة', 'warning')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
-    return decorated
-
+    return decorated_function
 
 def admin_required(f):
-    """يتطلب صلاحية المدير"""
     @wraps(f)
-    def decorated(*args, **kwargs):
-        role = session.get('role')
-        if not role:
-            if _wants_json():
-                return jsonify({'success': False, 'message': 'يجب تسجيل الدخول أولاً'}), 401
-            flash('يرجى تسجيل الدخول للمتابعة', 'error')
+    def decorated_function(*args, **kwargs):
+        if session.get('role') != 'admin':
+            flash('هذه الصفحة مخصصة لمدير النظام فقط', 'danger')
             return redirect(url_for('login'))
-        if role != 'admin':
-            if _wants_json():
-                return jsonify({'success': False, 'message': 'هذه الصفحة متاحة للمدير فقط'}), 403
-            flash('هذه الصفحة متاحة للمدير فقط', 'error')
-            return redirect(url_for('my'))
         return f(*args, **kwargs)
-    return decorated
-
-
-# ============================================
-# نماذج قاعدة البيانات
-# ============================================
-
-class Mosque(db.Model):
-    """نموذج المسجد"""
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    address = db.Column(db.String(500))
-    capacity = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    assignments = db.relationship('Assignment', backref='mosque', lazy=True)
-
-    def __repr__(self):
-        return f'<Mosque {self.name}>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'address': self.address,
-                'capacity': self.capacity,
-                'created_at': self.created_at
-        }
-
-
-
-@app.route('/assignment/<int:assignment_id>/confirm', methods=['POST'])
-@admin_required
-def api_confirm_assignment(assignment_id):
-    """خمسة: تأكيد التعيين من قبل الخطيب"""
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment:
-        return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
-
-    # التحقق من عدم وجود تعيين نشط آخر لنفس الخطيب في نفس الجمعة
-    dup = Assignment.query.filter(
-        Assignment.khateb_id == assignment.khateb_id,
-        Assignment.week_date == assignment.week_date,
-        Assignment.status != 'cancelled',
-        Assignment.id != assignment.id
-    ).first()
-    if dup:
-        return jsonify({'success': False, 'message': 'الخطيب لديه تعيين نشط آخر في نفس هذا الأسبوع بالفعل'}), 400
-
-    # Mark as confirmed and update visited mosques for khateb
-    assignment.status = 'confirmed'
-    db.session.add(assignment)
-
-    # تحديث قائمة المساجد المزارة للخطيب
-    khateb = Khateb.query.get(assignment.khateb_id)
-    visited = khateb.get_visited_mosques_list()
-    if assignment.mosque_id not in visited:
-        visited.append(assignment.mosque_id)
-        khateb.mosques_visited = json.dumps(visited)
-        db.session.add(khateb)
-
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'تم تأكيد التعيين'})
-
-
-class Khateb(db.Model):
-    """نموذج الخطيب"""
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    phone = db.Column(db.String(20))
-    current_topic = db.Column(db.String(300), default="موضوع افتراضي")
-    last_topic_change = db.Column(db.DateTime, default=datetime.utcnow)
-    mosques_visited = db.Column(db.Text)  # JSON array of mosque IDs
-    rest_weeks = db.Column(db.Integer, default=0)  # أسابيع الراحة
-    availability_mode = db.Column(db.String(20), default='always')  # always / alternate
-    alternate_offset = db.Column(db.Integer, default=0)
-    forbidden_mosques = db.Column(db.Text, default='[]')  # JSON array of mosque IDs
-    password_hash = db.Column(db.String(255))  # كلمة مرور الخطيب المشفّرة
-    # بلا default عمداً: الأسطر القديمة تبقى NULL (ملفهم جاهز) والجديد يُضبط على 0 صراحةً
-    profile_complete = db.Column(db.Integer)
-    is_active = db.Column(db.Integer, default=0)  # 1 = مفعّل، 0 = في انتظار موافقة المدير
-    pending_topic = db.Column(db.String(300), nullable=True)  # موضوع مقترح بانتظار اعتماد المدير
-    pending_topic_mode = db.Column(db.String(20), nullable=True)  # reset = من جديد / after_current = بعد إنهاء المساجد
-    pending_topic_approved = db.Column(db.Integer, default=0)  # 1 = معتمد ومجدول للتفعيل بعد إنهاء المساجد
-    seasonal_topic = db.Column(db.String(300), nullable=True)  # موضوع موسمي مؤقت (يعلو على الموضوع الأساسي)
-    seasonal_until = db.Column(db.Date, nullable=True)  # آخر جمعة يُطبَّق فيها الموضوع الموسمي
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    assignments = db.relationship('Assignment', backref='khateb', lazy=True)
-
-    def __repr__(self):
-        return f'<Khateb {self.name}>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'phone': self.phone,
-            'current_topic': self.current_topic,
-            'rest_weeks': self.rest_weeks,
-            'availability_mode': self.availability_mode or 'always',
-            'forbidden_mosques': json.loads(self.forbidden_mosques or '[]'),
-            'mosques_visited': self.get_visited_mosques_list()
-        }
-
-    def get_visited_mosques_list(self, exclude_week_date=None):
-        """إرجاع قائمة أرقام المساجد المزارة والمجدولة في الدورة الحالية لنفس الموضوع"""
-        visited = set(json.loads(self.mosques_visited or '[]'))
-        if not self.id:
-            return sorted(list(visited))
-        try:
-            assignment_cls = globals().get('Assignment')
-            if assignment_cls:
-                query = assignment_cls.query.filter(
-                    assignment_cls.khateb_id == self.id,
-                    assignment_cls.status != 'cancelled'
-                )
-                if exclude_week_date:
-                    query = query.filter(assignment_cls.week_date != exclude_week_date)
-
-                conditions = []
-                if self.current_topic:
-                    conditions.append(assignment_cls.khutba_topic == self.current_topic)
-                if self.seasonal_topic:
-                    conditions.append(assignment_cls.khutba_topic == self.seasonal_topic)
-                if self.last_topic_change:
-                    conditions.append(assignment_cls.created_at >= self.last_topic_change)
-
-                if conditions:
-                    query = query.filter(db.or_(*conditions))
-
-                for a in query.all():
-                    visited.add(a.mosque_id)
-        except Exception:
-            pass
-        return sorted(list(visited))
-
-    def has_profile(self):
-        """هل أكمل الخطيب ملفه؟ (موضوع الخطبة + المساجد المستثناة + نظام التوفر)
-
-        الخطباء المسجلون قبل هذه الميزة ملفهم جاهز تلقائياً
-        (قيمة profile_complete = NULL تُعامل كمكتمل).
-        """
-        if self.profile_complete is None:
-            return True
-        return bool(self.profile_complete)
-
-    def is_seasonal_active(self, target_date=None):
-        """هل يوجد موضوع موسمي ساري الآن أو في تاريخ مستهدف؟"""
-        if not self.seasonal_topic or not self.seasonal_until:
-            return False
-        check_date = target_date or date.today()
-        return check_date <= self.seasonal_until
-
-    def get_effective_topic(self, target_date=None):
-        """الموضوع المعروض للخطيب: الموضوع الموسمي إن كان سارياً، وإلا الموضوع الأساسي"""
-        if self.is_seasonal_active(target_date):
-            return self.seasonal_topic
-        return self.current_topic
-
-    def get_forbidden_mosques_list(self):
-        """إرجاع قائمة المساجد المستثناة"""
-        return json.loads(self.forbidden_mosques or '[]')
-
-
-class Assignment(db.Model):
-    """نموذج التعيين الأسبوعي"""
-    __table_args__ = (
-        db.Index(
-            'idx_assignment_khateb_active_week',
-            'khateb_id', 'week_date',
-            unique=True,
-            sqlite_where=db.text("status != 'cancelled'")
-        ),
-        db.Index(
-            'idx_assignment_mosque_active_week',
-            'mosque_id', 'week_date',
-            unique=True,
-            sqlite_where=db.text("status != 'cancelled'")
-        ),
-    )
-
-    id = db.Column(db.Integer, primary_key=True)
-    khateb_id = db.Column(db.Integer, db.ForeignKey('khateb.id'), nullable=False)
-    mosque_id = db.Column(db.Integer, db.ForeignKey('mosque.id'), nullable=False)
-    week_date = db.Column(db.Date, nullable=False)  # تاريخ الجمعة
-    khutba_topic = db.Column(db.String(300), nullable=False)
-    status = db.Column(db.String(20), default='confirmed')  # pending, confirmed, completed, cancelled
-    replacement_of_id = db.Column(db.Integer, nullable=True)  # التعيين الأصلي الذي حُلّ محلّه هذا التعيين
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def __repr__(self):
-        return f'<Assignment {self.khateb_id} -> {self.mosque_id} on {self.week_date}>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'khateb_name': self.khateb.name if self.khateb else 'غير محدد',
-            'mosque_name': self.mosque.name if self.mosque else 'غير محدد',
-            'week_date': self.week_date.strftime('%Y-%m-%d'),
-            'khutba_topic': self.khutba_topic,
-            'status': self.status
-        }
-
-
-class WeeklySchedule(db.Model):
-    """نموذج الجدول الأسبوعي"""
-    id = db.Column(db.Integer, primary_key=True)
-    week_date = db.Column(db.Date, nullable=False, unique=True)
-    khateb_ids = db.Column(db.Text)  # JSON array of khateb IDs for this week
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def __repr__(self):
-        return f'<WeeklySchedule {self.week_date}>'
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'week_date': self.week_date.strftime('%Y-%m-%d'),
-            'khateb_count': len(json.loads(self.khateb_ids or '[]'))
-        }
-
-
-class AppSetting(db.Model):
-    """إعدادات التطبيق (مفتاح / قيمة) - مثل كلمة مرور المدير"""
-    __tablename__ = 'app_setting'
-
-    key = db.Column(db.String(100), primary_key=True)
-    value = db.Column(db.Text)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def __repr__(self):
-        return f'<AppSetting {self.key}>'
-
-    @staticmethod
-    def get(key, default=None):
-        row = AppSetting.query.get(key)
-        return row.value if row is not None else default
-
-    @staticmethod
-    def set(key, value):
-        row = AppSetting.query.get(key)
-        if row is None:
-            row = AppSetting(key=key)
-        row.value = value
-        row.updated_at = datetime.utcnow()
-        db.session.add(row)
-        db.session.commit()
-        return row
-
-    @staticmethod
-    def delete(key):
-        row = AppSetting.query.get(key)
-        if row is not None:
-            db.session.delete(row)
-            db.session.commit()
-            return True
-        return False
-
-
-# ============================================
-# خوارزمية التوزيع الذكية
-# ============================================
-
-class DistributionEngine:
-    """محرك التوزيع الذكي للخطباء على المساجد"""
-
-    def __init__(self):
-        self.rest_cycle_weeks = 3  # كل 3 أسابيع أسبوع راحة
-
-    def get_current_friday(self):
-        """الحصول على تاريخ الجمعة الحالية"""
-        today = date.today()
-        days_ahead = 4 - today.weekday()  # Friday = 4
-        if days_ahead <= 0:  # Target day already happened this week
-            days_ahead += 7
-        # return a date object for the upcoming Friday
-        return today + timedelta(days=days_ahead)
-
-    def get_next_friday(self, friday_date):
-        """الحصول على الجمعة التالية"""
-        return friday_date + timedelta(days=7)
-
-    def get_available_khutbas(self, target_friday=None):
-        """الحصول على قائمة الخطباء المتاحين للتوزيع
-
-        يُستبعد:
-        - الخطباء غير المعتمدين من المدير (is_active = 0)
-        - الخطباء الذين لم يكملوا ملفهم (موضوع الخطبة + المساجد المزارة + نظام التوفر)
-        """
-        # حسب طلب المستخدم: تجاهل نظام الراحة عند التوزيع الأولي
-        khutbas = Khateb.query.all()
-        available = []
-        week_index = None
-        if target_friday:
-            # استخدام رقم الأسبوع لتحديد دورية "أسبوع متاح / أسبوع غير متاح"
-            week_index = target_friday.isocalendar()[1] + target_friday.year * 100
-        for khateb in khutbas:
-            # معتمد من المدير فقط
-            if khateb.is_active not in (1, True):
-                continue
-            # يجب أن يكون قد أكمل ملفه (الخطباء القدامى ملفهم جاهز)
-            if not khateb.has_profile():
-                continue
-            mode = khateb.availability_mode or 'always'
-            if mode == 'alternate' and week_index is not None:
-                offset = khateb.alternate_offset or 0
-                if ((week_index + offset) % 2) == 1:
-                    continue
-            available.append(khateb)
-        return available
-
-    def update_rest_weeks(self):
-        """تحديث أسابيع الراحة للخطباء"""
-        all_khutbas = Khateb.query.all()
-        for khateb in all_khutbas:
-            # العثور على آخر مرة تم تعيين الخطيب
-            last_assignment = Assignment.query.filter_by(khateb_id=khateb.id)\
-                .order_by(Assignment.week_date.desc()).first()
-            
-            if last_assignment:
-                # حساب عدد الأسابيع منذ آخر تعيين
-                weeks_since = (datetime.now().date() - last_assignment.week_date).days // 7
-                
-                # إذا مر أكثر من فترة الراحة، أضف أسبوع راحة
-                if weeks_since >= self.rest_cycle_weeks:
-                    khateb.rest_weeks = 1
-                elif weeks_since < self.rest_cycle_weeks - 1:
-                    khateb.rest_weeks = 0
-        db.session.commit()
-
-    def get_unvisited_mosques(self, khateb_id, target_friday=None):
-        """الحصول على المساجد غير المزارة للخطيب في الدورة الحالية"""
-        khateb = db.session.get(Khateb, khateb_id) if hasattr(db.session, 'get') else Khateb.query.get(khateb_id)
-        if not khateb:
-            return []
-        visited_mosques = set(khateb.get_visited_mosques_list(exclude_week_date=target_friday))
-        all_mosques = set([m.id for m in Mosque.query.all()])
-        unvisited = all_mosques - visited_mosques
-        return sorted(list(unvisited))
-
-    def compute_rest_stats(self, khateb_id, target_date):
-        """حساب إحصائيات الخطبة والراحة المتتالية للخطيب قبل تاريخ معين لتنظيم التناوب"""
-        cur_date = target_date - timedelta(days=7)
-        consecutive_p = 0
-        consecutive_r = 0
-        history = []
-        for _ in range(8):
-            a = Assignment.query.filter(
-                Assignment.khateb_id == khateb_id,
-                Assignment.week_date == cur_date,
-                Assignment.status != 'cancelled'
-            ).first()
-            history.append(1 if a else 0)
-            cur_date -= timedelta(days=7)
-
-        for val in history:
-            if val == 1:
-                if consecutive_r == 0:
-                    consecutive_p += 1
-                else:
-                    break
-            else:
-                if consecutive_p == 0:
-                    consecutive_r += 1
-                else:
-                    break
-
-        return consecutive_p, consecutive_r
-
-    def distribute_for_week(self, target_friday):
-        """توزيع الخطباء على المساجد لجمعة معينة"""
-        # السماح بإعادة التوزيع تلقائياً (حذف التعيينات والجدول السابق لهذا الأسبوع)
-        existing_assignments = Assignment.query.filter_by(week_date=target_friday).all()
-        if existing_assignments:
-            for a in existing_assignments:
-                db.session.delete(a)
-            db.session.flush()
-        existing_schedule = WeeklySchedule.query.filter_by(week_date=target_friday).first()
-        if existing_schedule:
-            db.session.delete(existing_schedule)
-            db.session.flush()
-
-        # تحديث أسابيع الراحة
-        self.update_rest_weeks()
-
-        # الحصول على الخطباء المتاحين
-        available_khutbas = self.get_available_khutbas(target_friday)
-        mosques = Mosque.query.all()
-
-        if len(available_khutbas) == 0:
-            return False, "لا يوجد خطباء متاحون حالياً"
-
-        if len(mosques) == 0:
-            return False, "لا يوجد مساجد مسجلة"
-
-        # بناء خريطة المساجد المسموح بها لكل خطيب وإحصائيات التناوب والراحة
-        candidate_map = {}
-        visited_map = {}
-        urgency_map = {}
-        for khateb in available_khutbas:
-            unvisited = self.get_unvisited_mosques(khateb.id, target_friday=target_friday)
-            forbidden = set(khateb.get_forbidden_mosques_list())
-            allowed = [m.id for m in mosques if m.id in unvisited and m.id not in forbidden]
-            if allowed:
-                candidate_map[khateb.id] = allowed
-                visited_map[khateb.id] = set(khateb.get_visited_mosques_list(exclude_week_date=target_friday))
-                cp, cr = self.compute_rest_stats(khateb.id, target_friday)
-                # معادلة أولوية الخطبة وتناوب الراحة:
-                # - إعطاء أولوية عظمى لمن كان في راحة (cr * 10) حتى يتناوب الجميع ولا يستمر أحد في الراحة
-                # - خصم لمن خطب لأسابيع متتالية (cp * 3) لإتاحة أسبوع الراحة له بالتناوب
-                # - خصم لعدد المساجد المزارة لموازنة تقدم الخطباء معاً
-                urgency = (cr * 10) - (cp * 3) - len(visited_map[khateb.id])
-                urgency_map[khateb.id] = urgency
-
-        eligible_khatebs = [k for k in available_khutbas if k.id in candidate_map]
-        if not eligible_khatebs:
-            return False, "جميع الخطباء المتاحين أنهوا دوراتهم الحالية ويحتاجون لتحديد مواضيع جديدة"
-
-        # فرز الخطباء حسب أولوية الخطبة (من في راحة أولاً) مع الأخذ بمبدأ الأقل خيارات (MRV)
-        sorted_khatebs = sorted(
-            eligible_khatebs,
-            key=lambda k: (-urgency_map[k.id], len(candidate_map[k.id]))
-        )
-
-        best_assignment = {}
-        best_score = [-1, -999999]
-
-        def score(assignment_dict):
-            # معيار التقييم: عدد المساجد الموزعة، ثم مجموع أولوية الخطبة والتناوب
-            total_urgency = sum(urgency_map.get(k_id, 0) for k_id in assignment_dict.keys())
-            return [len(assignment_dict), total_urgency]
-
-        def backtrack(index, current_assignment, used_mosques):
-            cur_score = score(current_assignment)
-            if cur_score[0] > best_score[0] or (cur_score[0] == best_score[0] and cur_score[1] > best_score[1]):
-                best_score[0] = cur_score[0]
-                best_score[1] = cur_score[1]
-                best_assignment.clear()
-                best_assignment.update(current_assignment)
-                if len(best_assignment) == min(len(sorted_khatebs), len(mosques)):
-                    return True
-
-            if index >= len(sorted_khatebs):
-                return False
-
-            k = sorted_khatebs[index]
-            options = [m_id for m_id in candidate_map[k.id] if m_id not in used_mosques]
-            import random
-            random.shuffle(options)
-
-            for m_id in options:
-                current_assignment[k.id] = m_id
-                used_mosques.add(m_id)
-                if backtrack(index + 1, current_assignment, used_mosques):
-                    return True
-                del current_assignment[k.id]
-                used_mosques.remove(m_id)
-
-            if backtrack(index + 1, current_assignment, used_mosques):
-                return True
-
-            return False
-
-        backtrack(0, {}, set())
-
-        if not best_assignment:
-            return False, "لم يتم العثور على توزيع متوافق بدون تكرار المساجد المزارة"
-
-        assignments = []
-        for khateb_id, chosen_mosque_id in best_assignment.items():
-            k_obj = db.session.get(Khateb, khateb_id) if hasattr(db.session, 'get') else Khateb.query.get(khateb_id)
-            assignment = Assignment(
-                khateb_id=khateb_id,
-                mosque_id=chosen_mosque_id,
-                week_date=target_friday,
-                khutba_topic=k_obj.get_effective_topic(target_friday)
-            )
-            assignments.append(assignment)
-
-        # حفظ التعيينات
-        db.session.add_all(assignments)
-        
-        # حفظ الجدول الأسبوعي
-        week_schedule = WeeklySchedule(
-            week_date=target_friday,
-            khateb_ids=json.dumps([a.khateb_id for a in assignments])
-        )
-        db.session.add(week_schedule)
-        db.session.commit()
-
-        return True, f"تم إنشاء {len(assignments)} تعيين بنجاح"
-
-    def update_khateb_mosques_visited(self, khateb_id, mosque_id):
-        """تحديث قائمة المساجد المزارة للخطيب"""
-        khateb = Khateb.query.get(khateb_id)
-        visited = khateb.get_visited_mosques_list()
-        
-        if mosque_id not in visited:
-            visited.append(mosque_id)
-            khateb.mosques_visited = json.dumps(visited)
-            db.session.commit()
-            
-            # فحص إذا انتهى من جميع المساجد
-            if len(visited) >= len(Mosque.query.all()):
-                return True, "انتهى من جميع المساجد - يحتاج تغيير الموضوع"
-        
-        return False, "تم التحديث بنجاح"
-
-    def should_change_topic(self, khateb_id):
-        """فحص إذا كان يجب على الخطيب تغيير الموضوع"""
-        khateb = Khateb.query.get(khateb_id)
-        visited = khateb.get_visited_mosques_list()
-        total_mosques = len(Mosque.query.all())
-
-        if total_mosques == 0:
-            return False
-        return len(visited) >= total_mosques
-
-    def reset_khateb_mosques(self, khateb_id):
-        """إعادة تعيين قائمة المساجد للخطيب"""
-        khateb = Khateb.query.get(khateb_id)
-        khateb.mosques_visited = json.dumps([])
-        khateb.last_topic_change = datetime.utcnow()
-        db.session.commit()
-        return True, "تم إعادة تعيين قائمة المساجد"
-
-
-# ============================================
-# إضافة البيانات الأولية
-# ============================================
-
-def init_sample_data():
-    """إضافة بيانات عينة للاختبار"""
-    # مساجد العينة
-    mosques_data = [
-        {"name": "مسجد النور", "address": "شارع الرياض، حي النور", "capacity": 300},
-        {"name": "مسجد الهدى", "address": "شارع الأمان، حي السلام", "capacity": 250},
-        {"name": "مسجد الفرقان", "address": "شارع الإيمان، حي التوبة", "capacity": 400},
-        {"name": "مسجد التقوى", "address": "شارع الخشوع، حي الورع", "capacity": 200},
-        {"name": "مسجد القرآن", "address": "شارع الذكر، حي الختم", "capacity": 350},
-        {"name": "مسجد السنة", "address": "شارع السلف، حي التقليد", "capacity": 280},
-    ]
-
-    # خطباء العينة
-    khutbas_data = [
-        {"name": "الشيخ أحمد محمد", "phone": "0501234567", "topic": "أهمية الصبر في الحياة"},
-        {"name": "الشيخ فاطمة علي", "phone": "0502345678", "topic": "الإحسان في التعامل"},
-        {"name": "الشيخ محمد سعد", "phone": "0503456789", "topic": "التوبة والأوبة"},
-        {"name": "الشيخ علي حسن", "phone": "0504567890", "topic": "الشكر والامتنان"},
-        {"name": "الشيخ سارة أحمد", "phone": "0505678901", "topic": "الحجاب والحشمة"},
-        {"name": "الشيخ خالد Yusuf", "phone": "0506789012", "topic": "الجهاد في سبيل الله"},
-        {"name": "الشيخ عبدالله محمد", "phone": "0507890123", "topic": "العدل والقسط"},
-        {"name": "الشيخ رنا سالم", "phone": "0508901234", "topic": "البر بالوالدين"},
-    ]
-
-    # إضافة المساجد
-    for mosque_data in mosques_data:
-        if not Mosque.query.filter_by(name=mosque_data["name"]).first():
-            mosque = Mosque(**mosque_data)
-            db.session.add(mosque)
-
-    # إضافة الخطباء
-    for khateb_data in khutbas_data:
-        if not Khateb.query.filter_by(name=khateb_data["name"]).first():
-            khateb = Khateb(
-                name=khateb_data["name"],
-                phone=khateb_data["phone"],
-                current_topic=khateb_data["topic"],
-                mosques_visited=json.dumps([]),
-                profile_complete=1,
-                is_active=1
-            )
-            db.session.add(khateb)
-
-    db.session.commit()
-
-
-# ============================================
-# Routes - صفحات الويب
-# ============================================
-
-@app.route('/')
-@admin_required
-def index():
-    """الصفحة الرئيسية"""
-    total_mosques = Mosque.query.count()
-    total_khutbas = Khateb.query.count()
-    total_assignments = Assignment.query.count()
-    this_week_assignments = Assignment.query.filter_by(
-        week_date=DistributionEngine().get_current_friday()
-    ).count()
-    
-    stats = {
-        'total_mosques': total_mosques,
-        'total_khutbas': total_khutbas,
-        'total_assignments': total_assignments,
-        'this_week_assignments': this_week_assignments
+    return decorated_function
+
+@app.before_request
+def load_logged_in_user():
+    g.is_admin = is_admin()
+    g.current_khateb = current_khateb()
+
+
+# ====================================================
+# دوال التحقق وتجهيز بيانات الجمعات (Validation & Helpers)
+# ====================================================
+
+ARABIC_TO_ASCII_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
+
+
+def normalize_phone(phone):
+    """توحيد صيغة رقم الجوال وتحويل الأرقام العربية إلى إنجليزية"""
+    if not phone:
+        return ''
+    return phone.translate(ARABIC_TO_ASCII_DIGITS).strip().replace(' ', '').replace('-', '')
+
+
+def validate_khateb_inputs(name, phone):
+    """التحقق من صحة الاسم (دون أرقام) ورقم الجوال (أرقام فقط)"""
+    name_clean = ' '.join((name or '').split())
+    phone_clean = normalize_phone(phone)
+
+    if not name_clean or len(name_clean) < 2:
+        return False, 'اسم الخطيب مطلوب ويجب أن لا يقل عن حرفين', name_clean, phone_clean
+
+    if re.search(r'[0-9٠-٩۰-۹]', name_clean):
+        return False, 'لا يمكن إدخال أرقام في حقل اسم الخطيب', name_clean, phone_clean
+
+    if not re.search(r'[a-zA-Z\u0621-\u064A]', name_clean):
+        return False, 'اسم الخطيب يجب أن يحتوي على حروف صحيحة', name_clean, phone_clean
+
+    if not phone_clean:
+        return False, 'رقم الجوال مطلوب', name_clean, phone_clean
+
+    if not re.match(r'^\+?[0-9]{8,15}$', phone_clean):
+        return False, 'رقم الجوال غير صحيح: يجب إدخال أرقام فقط (من 8 إلى 15 رقماً) دون حروف', name_clean, phone_clean
+
+    return True, '', name_clean, phone_clean
+
+
+def parse_unavailable_dates_from_form(form):
+    """استخراج تواريخ عدم الإتاحة من مربعات الاختيار أو القائمة النصية"""
+    raw_list = form.getlist('unavailable_dates')
+    dates = []
+    for item in raw_list:
+        for part in item.split(','):
+            d_str = part.strip()
+            if d_str:
+                try:
+                    datetime.strptime(d_str, '%Y-%m-%d')
+                    dates.append(d_str)
+                except ValueError:
+                    pass
+    return sorted(list(set(dates)))
+
+
+def get_friday_selection_context(num_weeks=12, extended_weeks=24):
+    """تجهيز قائمة الجمعات القادمة وقيم بداية التناوب للواجهات"""
+    next_friday = engine.get_current_friday()
+    after_next_friday = next_friday + timedelta(days=7)
+    next_idx = get_friday_week_index(next_friday)
+
+    offset_next = next_idx % 2
+    offset_after_next = (next_idx + 1) % 2
+
+    upcoming_fridays = []
+    for i in range(num_weeks):
+        d = next_friday + timedelta(days=7 * i)
+        tag = 'القادمة' if i == 0 else ('بعد القادمة' if i == 1 else f'بعد {i + 1} أسابيع')
+        suffix = f' ({tag})' if i < 2 else ''
+        upcoming_fridays.append({
+            'date_str': d.strftime('%Y-%m-%d'),
+            'label': f"الجمعة {d.strftime('%Y-%m-%d')}{suffix}",
+            'tag': tag,
+        })
+
+    extended_fridays = []
+    for i in range(num_weeks, extended_weeks):
+        d = next_friday + timedelta(days=7 * i)
+        extended_fridays.append({
+            'date_str': d.strftime('%Y-%m-%d'),
+            'label': f"الجمعة {d.strftime('%Y-%m-%d')}",
+        })
+
+    return {
+        'next_friday': next_friday,
+        'after_next_friday': after_next_friday,
+        'offset_next': offset_next,
+        'offset_after_next': offset_after_next,
+        'upcoming_fridays': upcoming_fridays,
+        'extended_fridays': extended_fridays,
     }
-    
-    return render_template('index.html', stats=stats)
 
+
+# ====================================================
+# مسارات تسجيل الدخول والخروج والتسجيل
+# ====================================================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        login_type = request.form.get('login_type', 'admin')
+
+        if login_type == 'admin':
+            password = request.form.get('password', '').strip()
+            admin_hash = AppSetting.get('admin_password_hash')
+            from werkzeug.security import check_password_hash, generate_password_hash
+
+            # كلمة مرور المدير الافتراضية أو من متغير البيئة عند أول تشغيل
+            if not admin_hash:
+                default_pw = os.environ.get('ADMIN_PASSWORD', 'admin123')
+                admin_hash = generate_password_hash(default_pw)
+                AppSetting.set('admin_password_hash', admin_hash)
+
+            if check_password_hash(admin_hash, password):
+                session.clear()
+                session['user_id'] = 'admin'
+                session['role'] = 'admin'
+                session['name'] = 'مدير النظام'
+                flash('تم تسجيل دخول المدير بنجاح', 'success')
+                return redirect(url_for('distribution'))
+            else:
+                flash('كلمة مرور المدير غير صحيحة', 'danger')
+
+        elif login_type == 'khateb':
+            phone = normalize_phone(request.form.get('phone', ''))
+            password = request.form.get('password', '').strip()
+
+            khateb = Khateb.query.filter_by(phone=phone).first()
+            if khateb and khateb.check_password(password):
+                if khateb.is_active != 1:
+                    flash('حسابك قيد المراجعة وبانتظار موافقة الإدارة قبل التفعيل.', 'info')
+                    return render_template('login.html')
+
+                session.clear()
+                session['user_id'] = khateb.id
+                session['role'] = 'khateb'
+                session['khateb_id'] = khateb.id
+                session['name'] = khateb.name
+                flash(f'مرحباً بك يا شيخ {khateb.name}', 'success')
+                return redirect(url_for('my_portal'))
+            else:
+                flash('رقم الهاتف أو كلمة المرور غير صحيحة', 'danger')
+
+    return render_template('login.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """تسجيل خطيب جديد لنفسه (يبقى معلقاً حتى يفعله المدير)"""
+    friday_ctx = get_friday_selection_context()
+    if request.method == 'POST':
+        raw_name = request.form.get('name', '')
+        raw_phone = request.form.get('phone', '')
+        password = request.form.get('password', '').strip()
+        availability_mode = request.form.get('availability_mode', 'always')
+        if availability_mode not in ('always', 'alternate'):
+            availability_mode = 'always'
+        alternate_offset_raw = request.form.get('alternate_offset')
+        alternate_offset = int(alternate_offset_raw) if alternate_offset_raw in ('0', '1') else friday_ctx['offset_next']
+        forbidden = [int(x) for x in request.form.getlist('forbidden_mosques') if x.isdigit()]
+        initial_visited = [int(x) for x in request.form.getlist('initial_visited_mosques') if x.isdigit()]
+        unavailable_dates = parse_unavailable_dates_from_form(request.form)
+
+        if not password:
+            flash('يرجى إدخال كلمة المرور', 'danger')
+            return redirect(url_for('register'))
+
+        valid, err_msg, name, phone = validate_khateb_inputs(raw_name, raw_phone)
+        if not valid:
+            flash(err_msg, 'danger')
+            return redirect(url_for('register'))
+
+        if Khateb.query.filter_by(phone=phone).first():
+            flash('رقم الهاتف هذا مسجل لدينا بالفعل، يرجى تسجيل الدخول', 'warning')
+            return redirect(url_for('login'))
+
+        new_khateb = Khateb(
+            name=name,
+            phone=phone,
+            is_active=0,  # بانتظار موافقة المدير صراحةً
+            availability_mode=availability_mode,
+            alternate_offset=alternate_offset,
+            forbidden_mosques=json.dumps(sorted(list(set(forbidden)))),
+            initial_visited_mosques=json.dumps(sorted(list(set(initial_visited)))),
+            unavailable_dates=json.dumps(unavailable_dates),
+            current_cycle=1
+        )
+        new_khateb.set_password(password)
+        db.session.add(new_khateb)
+        db.session.commit()
+
+        flash('تم تسجيلك بنجاح! حسابك بانتظار تفعيل الإدارة ولن يتم إدراجك في التوزيع حتى تتم الموافقة.', 'success')
+        return redirect(url_for('login'))
+
+    mosques = Mosque.query.all()
+    return render_template('register.html', mosques=mosques, **friday_ctx)
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('تم تسجيل الخروج بنجاح', 'info')
+    return redirect(url_for('login'))
+
+
+# ====================================================
+# إدارة المساجد (Mosque Management)
+# ====================================================
 
 @app.route('/mosques')
 @admin_required
 def mosques():
-    """صفحة إدارة المساجد"""
-    mosques = Mosque.query.all()
-    # Convert SQLAlchemy models to dictionaries for JSON serialization
-    mosque_list = [mosque.to_dict() for mosque in mosques]
-    # إجمالي الطاقة الاستيعابية (تجاهل المساجد بدون سعة مسجلة)
-    total_capacity = sum(m.capacity or 0 for m in mosques)
-    return render_template('mosques.html', mosques=mosque_list, total_capacity=total_capacity)
-
+    all_mosques = Mosque.query.order_by(Mosque.id.desc()).all()
+    return render_template('mosques.html', mosques=all_mosques)
 
 @app.route('/mosque/add', methods=['POST'])
 @admin_required
 def add_mosque():
-    """إضافة مسجد جديد"""
-    name = request.form.get('name')
-    address = request.form.get('address')
-    capacity = request.form.get('capacity', type=int)
-    
+    name = request.form.get('name', '').strip()
+    address = request.form.get('address', '').strip()
+    capacity = int(request.form.get('capacity') or 0)
+    notes = request.form.get('notes', '').strip()
+
     if not name:
-        flash('اسم المسجد مطلوب', 'error')
+        flash('اسم المسجد مطلوب', 'danger')
         return redirect(url_for('mosques'))
-    
-    mosque = Mosque(name=name, address=address, capacity=capacity)
+
+    if Mosque.query.filter_by(name=name).first():
+        flash('يوجد مسجد مسجل بنفس هذا الاسم مسبقاً', 'warning')
+        return redirect(url_for('mosques'))
+
+    mosque = Mosque(name=name, address=address, capacity=capacity, notes=notes)
     db.session.add(mosque)
     db.session.commit()
-    
-    flash('تم إضافة المسجد بنجاح', 'success')
+    flash(f'تم إضافة مسجد "{name}" بنجاح', 'success')
     return redirect(url_for('mosques'))
 
+@app.route('/mosque/<int:mosque_id>/edit', methods=['POST'])
+@admin_required
+def edit_mosque(mosque_id):
+    mosque = db.session.get(Mosque, mosque_id)
+    if not mosque:
+        flash('المسجد غير موجود', 'danger')
+        return redirect(url_for('mosques'))
+
+    name = request.form.get('name', '').strip()
+    if name:
+        mosque.name = name
+    mosque.address = request.form.get('address', '').strip()
+    mosque.capacity = int(request.form.get('capacity') or 0)
+    mosque.notes = request.form.get('notes', '').strip()
+    db.session.commit()
+    flash('تم تحديث بيانات المسجد بنجاح', 'success')
+    return redirect(url_for('mosques'))
+
+@app.route('/mosque/<int:mosque_id>/delete', methods=['POST'])
+@admin_required
+def delete_mosque(mosque_id):
+    mosque = db.session.get(Mosque, mosque_id)
+    if mosque:
+        name = mosque.name
+        db.session.delete(mosque)
+        db.session.commit()
+        flash(f'تم حذف مسجد "{name}" وجميع التعيينات المرتبطة به', 'info')
+    return redirect(url_for('mosques'))
+
+
+# ====================================================
+# إدارة الخطباء (Khateeb Management)
+# ====================================================
 
 @app.route('/khutbas')
 @admin_required
 def khutbas():
-    """صفحة إدارة الخطباء"""
-    khutbas = Khateb.query.all()
-    mosques = Mosque.query.all()
-    current_friday = DistributionEngine().get_current_friday()
-    return render_template('khutbas.html', khutbas=khutbas, mosques=mosques, current_friday=current_friday)
+    all_khatebs = Khateb.query.order_by(Khateb.is_active.asc(), Khateb.name.asc()).all()
+    all_mosques = Mosque.query.all()
+    mosques_dict = {m.id: m.name for m in all_mosques}
+    friday_ctx = get_friday_selection_context()
 
+    khateb_payloads = {}
+    for k in all_khatebs:
+        system_visited_c1 = sorted(list(set(
+            a.mosque_id for a in k.assignments
+            if a.cycle_number == 1 and a.status in ('confirmed', 'completed')
+        )))
+        khateb_payloads[k.id] = {
+            'id': k.id,
+            'name': k.name,
+            'phone': k.phone,
+            'availability_mode': k.availability_mode,
+            'alternate_offset': k.alternate_offset if k.alternate_offset in (0, 1) else friday_ctx['offset_next'],
+            'unavailable_dates': k.get_unavailable_dates(),
+            'forbidden_mosques': k.get_forbidden_mosques(),
+            'initial_visited_mosques': k.get_initial_visited_mosques(),
+            'system_visited_c1': system_visited_c1,
+            'current_cycle': k.current_cycle,
+        }
+
+    return render_template(
+        'khutbas.html',
+        khatebs=all_khatebs,
+        mosques=all_mosques,
+        mosques_dict=mosques_dict,
+        khateb_payloads=khateb_payloads,
+        **friday_ctx
+    )
 
 @app.route('/khateb/add', methods=['POST'])
 @admin_required
 def add_khateb():
-    """إضافة خطيب جديد"""
-    name = request.form.get('name')
-    phone = request.form.get('phone')
-    topic = request.form.get('topic', 'موضوع افتراضي')
-    visited_mosques = request.form.getlist('visited_mosques')
+    friday_ctx = get_friday_selection_context()
+    raw_name = request.form.get('name', '')
+    raw_phone = request.form.get('phone', '')
+    password = request.form.get('password', '').strip() or '123456'
     availability_mode = request.form.get('availability_mode', 'always')
-    alternate_offset = request.form.get('alternate_offset', 0, type=int)
-    forbidden_mosques = request.form.getlist('forbidden_mosques')
-    
-    if not name:
-        flash('اسم الخطيب مطلوب', 'error')
+    if availability_mode not in ('always', 'alternate'):
+        availability_mode = 'always'
+    alternate_offset_raw = request.form.get('alternate_offset')
+    alternate_offset = int(alternate_offset_raw) if alternate_offset_raw in ('0', '1') else friday_ctx['offset_next']
+    forbidden = [int(x) for x in request.form.getlist('forbidden_mosques') if x.isdigit()]
+    initial_visited = [int(x) for x in request.form.getlist('initial_visited_mosques') if x.isdigit()]
+    unavailable_dates = parse_unavailable_dates_from_form(request.form)
+
+    valid, err_msg, name, phone = validate_khateb_inputs(raw_name, raw_phone)
+    if not valid:
+        flash(err_msg, 'danger')
         return redirect(url_for('khutbas'))
-    
+
+    if Khateb.query.filter_by(phone=phone).first():
+        flash('رقم الهاتف مسجل بالفعل لخطيب آخر', 'warning')
+        return redirect(url_for('khutbas'))
+
     khateb = Khateb(
         name=name,
         phone=phone,
-        current_topic=topic,
-        mosques_visited=json.dumps([int(m) for m in visited_mosques]),
+        is_active=1,  # مفعّل مباشرة إذا أضافه المدير
         availability_mode=availability_mode,
         alternate_offset=alternate_offset,
-        forbidden_mosques=json.dumps([int(m) for m in forbidden_mosques]),
-        profile_complete=1,
-        is_active=1,
+        forbidden_mosques=json.dumps(sorted(list(set(forbidden)))),
+        initial_visited_mosques=json.dumps(sorted(list(set(initial_visited)))),
+        unavailable_dates=json.dumps(unavailable_dates),
+        current_cycle=1
     )
+    khateb.set_password(password)
     db.session.add(khateb)
     db.session.commit()
-    
-    flash('تم إضافة الخطيب %s بنجاح. سيظهر في التوزيع تلقائياً.' % name, 'success')
+    flash(f'تم إضافة الشيخ {name} بنجاح بكلمة مرور: {password}', 'success')
     return redirect(url_for('khutbas'))
+
+@app.route('/khateb/<int:khateb_id>/edit', methods=['POST'])
+@admin_required
+def edit_khateb(khateb_id):
+    khateb = db.session.get(Khateb, khateb_id)
+    if not khateb:
+        flash('الخطيب غير موجود', 'danger')
+        return redirect(url_for('khutbas'))
+
+    raw_name = request.form.get('name', khateb.name)
+    raw_phone = request.form.get('phone', khateb.phone)
+    valid, err_msg, name, phone = validate_khateb_inputs(raw_name, raw_phone)
+    if not valid:
+        flash(err_msg, 'danger')
+        return redirect(url_for('khutbas'))
+
+    existing_other = Khateb.query.filter(Khateb.phone == phone, Khateb.id != khateb.id).first()
+    if existing_other:
+        flash('رقم الجوال مستخدم بالفعل لخطيب آخر', 'warning')
+        return redirect(url_for('khutbas'))
+
+    khateb.name = name
+    khateb.phone = phone
+    availability_mode = request.form.get('availability_mode', khateb.availability_mode)
+    khateb.availability_mode = availability_mode if availability_mode in ('always', 'alternate') else 'always'
+    alternate_offset_raw = request.form.get('alternate_offset')
+    if alternate_offset_raw in ('0', '1'):
+        khateb.alternate_offset = int(alternate_offset_raw)
+
+    new_password = request.form.get('password', '').strip()
+    if new_password:
+        khateb.set_password(new_password)
+
+    forbidden = [int(x) for x in request.form.getlist('forbidden_mosques') if x.isdigit()]
+    khateb.set_forbidden_mosques(forbidden)
+
+    initial_visited = [int(x) for x in request.form.getlist('initial_visited_mosques') if x.isdigit()]
+    khateb.set_initial_visited_mosques(initial_visited)
+
+    # تحديث تواريخ الغياب/عدم التوفر
+    khateb.set_unavailable_dates(parse_unavailable_dates_from_form(request.form))
+
+    db.session.commit()
+    flash('تم تحديث بيانات الخطيب بنجاح', 'success')
+    return redirect(url_for('khutbas'))
+
+@app.route('/khateb/<int:khateb_id>/toggle_active', methods=['POST'])
+@admin_required
+def toggle_active_khateb(khateb_id):
+    khateb = db.session.get(Khateb, khateb_id)
+    if khateb:
+        khateb.is_active = 0 if khateb.is_active == 1 else 1
+        db.session.commit()
+        status_str = "تفعيل" if khateb.is_active == 1 else "تعطيل"
+        flash(f'تم {status_str} حساب الشيخ {khateb.name}', 'success')
+    return redirect(url_for('khutbas'))
+
+@app.route('/khateb/<int:khateb_id>/set_password', methods=['POST'])
+@admin_required
+def admin_set_khateb_password(khateb_id):
+    khateb = db.session.get(Khateb, khateb_id)
+    new_pw = request.form.get('new_password', '').strip()
+    if khateb and new_pw:
+        khateb.set_password(new_pw)
+        db.session.commit()
+        flash(f'تم تعيين كلمة مرور جديدة للشيخ {khateb.name}', 'success')
+    return redirect(url_for('khutbas'))
+
+@app.route('/khateb/<int:khateb_id>/delete', methods=['POST'])
+@admin_required
+def delete_khateb(khateb_id):
+    khateb = db.session.get(Khateb, khateb_id)
+    if khateb:
+        name = khateb.name
+        db.session.delete(khateb)
+        db.session.commit()
+        flash(f'تم حذف الشيخ {name}', 'info')
+    return redirect(url_for('khutbas'))
+
+
+# ====================================================
+# التوزيع الأسبوعي والاحتياط (Distribution & Reserves)
+# ====================================================
+
+@app.route('/')
+def index():
+    if session.get('role') == 'khateb':
+        return redirect(url_for('my_portal'))
+    return redirect(url_for('distribution'))
+
+def get_week_schedule_data(target_date):
+    """جلب التعيينات المعتمدة والمعتذرين غير المعوضين والاحتياط لجمعة محددة"""
+    confirmed_assignments = Assignment.query.filter_by(
+        week_date=target_date,
+        status='confirmed'
+    ).all()
+    confirmed_mosque_ids = {a.mosque_id for a in confirmed_assignments}
+
+    apologized_assignments = Assignment.query.filter_by(
+        week_date=target_date,
+        status='apologized'
+    ).all()
+    uncovered_apologized = [a for a in apologized_assignments if a.mosque_id not in confirmed_mosque_ids]
+    assignments = sorted(
+        confirmed_assignments + uncovered_apologized,
+        key=lambda a: a.mosque_id
+    )
+
+    sched = WeeklySchedule.query.filter_by(week_date=target_date).first()
+    reserve_khatebs = []
+    if sched:
+        res_ids = sched.get_reserve_khateb_ids()
+        if res_ids:
+            reserve_khatebs = Khateb.query.filter(Khateb.id.in_(res_ids)).all()
+
+    return assignments, apologized_assignments, reserve_khatebs, sched
+
+
+def get_schedule_summaries(selected_date=None):
+    """جلب ملخص جميع التوزيعات المنشأة للعرض والفلترة"""
+    all_schedules = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).all()
+    today_d = date.today()
+    items = []
+    for s in all_schedules:
+        assigned_count = Assignment.query.filter(
+            Assignment.week_date == s.week_date,
+            Assignment.status == 'confirmed'
+        ).count()
+        reserve_count = len(s.get_reserve_khateb_ids())
+        items.append({
+            'week_date': s.week_date,
+            'date_str': s.week_date.strftime('%Y-%m-%d'),
+            'assigned_count': assigned_count,
+            'reserve_count': reserve_count,
+            'is_past': s.week_date < today_d,
+            'is_current_view': (selected_date is not None and s.week_date == selected_date)
+        })
+    return all_schedules, items
 
 
 @app.route('/distribution')
 @admin_required
 def distribution():
-    """صفحة التوزيع الأسبوعي"""
-    engine = DistributionEngine()
-    
-    # الحصول على جميع الأسابيع المسجلة في جدول التعيينات
-    distinct_weeks = [
-        r[0] for r in db.session.query(Assignment.week_date).distinct().order_by(Assignment.week_date.desc()).all()
-    ]
-    
-    engine_friday = engine.get_current_friday()
-    
-    date_str = request.args.get('date')
-    if date_str:
+    target_date_str = request.args.get('date')
+    if target_date_str:
         try:
-            current_friday = datetime.strptime(date_str, '%Y-%m-%d').date()
-        except ValueError:
-            current_friday = engine_friday
+            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+        except Exception:
+            target_date = engine.get_current_friday()
     else:
-        # إذا لم يتم تحديد تاريخ، نأخذ الجمعة القادمة إذا وجدت لها تعيينات، أو أحدث أسبوع مسجل
-        if engine_friday in distinct_weeks:
-            current_friday = engine_friday
-        elif distinct_weeks:
-            current_friday = distinct_weeks[0]
-        else:
-            current_friday = engine_friday
-    
-    # الحصول على التعيينات لهذا الأسبوع
-    assignments = Assignment.query.filter_by(week_date=current_friday)        .order_by(Assignment.mosque_id).all()
-    
-    # تحويل التعيينات إلى قواميس
-    assignment_dicts = [assignment.to_dict() for assignment in assignments]
-    
-    # إحصائيات
-    total_mosques = Mosque.query.count()
-    active_assignments = [a for a in assignments if a.status != 'cancelled']
-    assigned_mosques = len(set(a.mosque_id for a in active_assignments))
-    remaining_mosques = max(0, total_mosques - assigned_mosques)
-    
-    # حساب الخطباء الاحتياطيين (الذين في راحة لهذا الأسبوع)
-    assigned_khateb_ids = {a.khateb_id for a in active_assignments}
-    available_khutbas = engine.get_available_khutbas(current_friday)
-    
-    reserve_khutbas = []
-    for khateb in available_khutbas:
-        if khateb.id not in assigned_khateb_ids:
-            visited = khateb.get_visited_mosques_list()
-            remaining_in_cycle = max(0, total_mosques - len(visited))
-            reserve_khutbas.append({
-                'id': khateb.id,
-                'name': khateb.name,
-                'phone': khateb.phone or '',
-                'current_topic': khateb.current_topic,
-                'visited_count': len(visited),
-                'remaining_mosques_count': remaining_in_cycle,
-                'total_mosques': total_mosques,
-                'status_label': 'راحة دورية (جاهز كاحتياط)'
-            })
-    
-    distribution_stats = {
-        'current_friday': current_friday.strftime('%Y-%m-%d'),
-        'total_assignments': len(active_assignments),
-        'assigned_mosques': assigned_mosques,
-        'remaining_mosques': remaining_mosques,
-        'total_mosques': total_mosques,
-        'reserve_count': len(reserve_khutbas)
-    }
-    
-    available_weeks = [w.strftime('%Y-%m-%d') for w in distinct_weeks]
-    current_friday_str = current_friday.strftime('%Y-%m-%d')
-    if current_friday_str not in available_weeks:
-        available_weeks.append(current_friday_str)
-        available_weeks.sort(reverse=True)
-    
-    return render_template('distribution.html', 
-                         assignments=assignment_dicts, 
-                         reserve_khutbas=reserve_khutbas, 
-                         stats=distribution_stats,
-                         available_weeks=available_weeks,
-                         selected_date=current_friday_str)
+        target_date = engine.get_current_friday()
 
+    assignments, apologized_assignments, reserve_khatebs, sched = get_week_schedule_data(target_date)
+
+    # نص الواتساب الجاهز للنسخ
+    wa_lines = [
+        "🕌 *جدول توزيع خطباء الجمعة*",
+        f"📅 *التاريخ:* الجمعة {target_date.strftime('%Y-%m-%d')}",
+        "────────────────────"
+    ]
+    if assignments:
+        wa_lines.append("📋 *المساجد والخطباء المكلفون:*")
+        for i, a in enumerate(assignments, 1):
+            status_tag = " (اعتذر)" if a.status == 'apologized' else ""
+            wa_lines.append(f"{i}. *{a.mosque.name}* ⬅️ الشيخ {a.khateb.name}{status_tag}")
+    else:
+        wa_lines.append("لم يتم التوزيع لهذه الجمعة بعد.")
+
+    if reserve_khatebs:
+        wa_lines.append("\n📋 *جدول الخطباء الاحتياطي:*")
+        for r in reserve_khatebs:
+            wa_lines.append(f"▫️ الشيخ {r.name}")
+
+    wa_lines.append("\nجزاكم الله خيراً وبارك في جهودكم 🌿")
+    whatsapp_text = "\n".join(wa_lines)
+
+    # جميع الأسابيع الموزعة سابقاً مع إحصائياتها للفلترة والتنقل السريع
+    all_schedules, schedule_items = get_schedule_summaries(selected_date=target_date)
+    today_d = date.today()
+    current_friday = engine.get_current_friday()
+    prev_friday = target_date - timedelta(days=7)
+    date_filter = request.args.get('filter', 'all')
+
+    return render_template(
+        'distribution.html',
+        target_date=target_date,
+        assignments=assignments,
+        apologized_assignments=apologized_assignments,
+        has_distribution=bool(assignments or apologized_assignments or sched),
+        reserve_khatebs=reserve_khatebs,
+        whatsapp_text=whatsapp_text,
+        all_schedules=all_schedules,
+        schedule_items=schedule_items,
+        date_filter=date_filter,
+        today_d=today_d,
+        current_friday=current_friday,
+        prev_friday=prev_friday,
+        next_friday=engine.get_next_friday(target_date)
+    )
 
 @app.route('/distribution/create', methods=['POST'])
 @admin_required
 def create_distribution():
-    """إنشاء توزيع جديد للجمعة القادمة"""
-    engine = DistributionEngine()
-    target_date_str = request.form.get('target_date')
-    
-    if target_date_str:
-        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    date_str = request.form.get('target_date')
+    if date_str:
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
     else:
-        target_date = engine.get_next_friday(engine.get_current_friday())
-    
-    success, message = engine.distribute_for_week(target_date)
-    
-    if success:
-        flash(message, 'success')
-    else:
-        flash(message, 'error')
-    
-    return jsonify({'success': success, 'message': message})
+        target_date = engine.get_current_friday()
 
+    success, msg, assignments, reserve_khatebs = engine.distribute_for_week(target_date)
+    flash(msg, 'success' if success else 'danger')
+    return redirect(url_for('distribution', date=target_date.strftime('%Y-%m-%d')))
 
-@app.route('/khateb/<int:khateb_id>/change_topic', methods=['POST'])
+@app.route('/distribution/delete', methods=['POST'])
 @admin_required
-def change_khateb_topic(khateb_id):
-    """تغيير موضوع الخطيب وإعادة تعيين المساجد"""
-    new_topic = request.form.get('new_topic')
-    
-    if not new_topic:
-        flash('الموضوع الجديد مطلوب', 'error')
-        return redirect(url_for('khutbas'))
-    
-    engine = DistributionEngine()
-    success, message = engine.reset_khateb_mosques(khateb_id)
-    
-    if success:
-        khateb = Khateb.query.get(khateb_id)
-        khateb.current_topic = new_topic
-        db.session.commit()
-        flash('تم تغيير الموضوع وإعادة تعيين المساجد بنجاح', 'success')
-    else:
-        flash('حدث خطأ', 'error')
-    
-    return redirect(url_for('khutbas'))
+def delete_distribution():
+    """مسح توزيعة جمعة محددة بالكامل (في المستقبل أو الماضي)"""
+    date_str = request.form.get('target_date', '').strip()
+    redirect_date = request.form.get('redirect_date', '').strip()
+    if not date_str:
+        flash('يرجى تحديد تاريخ الجمعة المراد مسح توزيعها', 'danger')
+        return redirect(url_for('distribution'))
 
-
-@app.route('/khateb/<int:khateb_id>/status')
-@admin_required
-def get_khateb_status(khateb_id):
-    """API للحصول على حالة الخطيب"""
-    engine = DistributionEngine()
-    khateb = Khateb.query.get(khateb_id)
-    
-    if not khateb:
-        return jsonify({'error': 'الخطيب غير موجود'}), 404
-    
-    visited_mosques = khateb.get_visited_mosques_list()
-    total_mosques = Mosque.query.count()
-    should_change = engine.should_change_topic(khateb_id)
-    
-    status = {
-        'khateb_id': khateb_id,
-        'name': khateb.name,
-        'current_topic': khateb.current_topic,
-        'visited_count': len(visited_mosques),
-        'total_mosques': total_mosques,
-        'progress_percentage': (len(visited_mosques) / total_mosques * 100) if total_mosques else 0.0,
-        'should_change_topic': should_change,
-        'visited_mosques': visited_mosques
-    }
-    
-    return jsonify(status)
-
-
-@app.route('/api/khutbas/status')
-@admin_required
-def api_all_khutbas_status():
-    """API للحصول على حالة جميع الخطباء"""
-    engine = DistributionEngine()
-    khutbas = Khateb.query.all()
-    total_mosques = Mosque.query.count()
-    
-    statuses = []
-    for khateb in khutbas:
-        visited_mosques = khateb.get_visited_mosques_list()
-        should_change = engine.should_change_topic(khateb.id)
-        
-        status = {
-            'id': khateb.id,
-            'name': khateb.name,
-            'current_topic': khateb.current_topic,
-            'visited_count': len(visited_mosques),
-            'total_mosques': total_mosques,
-            'progress_percentage': (len(visited_mosques) / total_mosques * 100) if total_mosques else 0.0,
-            'should_change_topic': should_change,
-            'rest_weeks': khateb.rest_weeks
-        }
-        statuses.append(status)
-    
-    return jsonify(statuses)
-
-
-# إنشاء المجلدات المطلوبة
-import os
-
-def create_directories():
-    """إنشاء المجلدات المطلوبة"""
-    os.makedirs('templates', exist_ok=True)
-    os.makedirs('static', exist_ok=True)
-    os.makedirs('static/css', exist_ok=True)
-    os.makedirs('static/js', exist_ok=True)
-    
-    # إنشاء قاعدة البيانات وإضافة البيانات العينة (للقاعدة الجديدة فقط)
-    is_new_database = 'khateb' not in sa_inspect(db.engine).get_table_names()
-    db.create_all()
-    if is_new_database:
-        init_sample_data()
-
-    # الاحتفاظ بأحدث نسختين احتياطيتين فقط على الخادم
     try:
-        prune_local_backups()
-    except Exception:
-        pass
-
-
-# ============================================
-# النسخ الاحتياطي والاستعادة
-# ============================================
-
-BACKUP_DIR_NAME = 'instance'
-# عدد النسخ الاحتياطية المحفوظة على الخادم (تُحذف الأقدم تلقائياً)
-MAX_LOCAL_BACKUPS = 2
-REQUIRED_TABLES = ('mosque', 'khateb', 'assignment', 'weekly_schedule')
-
-
-def get_db_path():
-    """المسار المطلق لملف قاعدة البيانات"""
-    return os.path.join(app.instance_path, 'khutba_distribution.db')
-
-
-def _is_backup_file(name):
-    """هل هذا الملف نسخة احتياطية معروفة (مع استثناء ملف قاعدة البيانات نفسه)"""
-    if not name.endswith('.db'):
-        return False
-    if name == os.path.basename(get_db_path()):
-        return False
-    return name.startswith('khutba_backup_') or name.startswith('backup_')
-
-
-def create_local_backup(prefix='khutba_backup_'):
-    """إنشاء نسخة احتياطية محلية متناسقة (عبر sqlite backup API)"""
-    db_path = get_db_path()
-    if not os.path.exists(db_path):
-        return None
-
-    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    name = '%s%s.db' % (prefix, stamp)
-    dest_path = os.path.join(app.instance_path, name)
-
-    src = sqlite3.connect(db_path)
-    try:
-        dst = sqlite3.connect(dest_path)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
-    except sqlite3.Error:
-        return None
-    finally:
-        src.close()
-
-    prune_local_backups()
-    return name
-
-
-def prune_local_backups(keep=MAX_LOCAL_BACKUPS):
-    """حذف النسخ القديمة من الخادم مع الإبقاء على الأحدث فقط"""
-    try:
-        names = [f for f in os.listdir(app.instance_path) if _is_backup_file(f)]
-    except OSError:
-        return
-
-    # الترتيب من الأحدث إلى الأقدم
-    def _key(name):
-        try:
-            mtime = os.stat(os.path.join(app.instance_path, name)).st_mtime
-        except OSError:
-            mtime = 0
-        return (mtime, name)
-
-    names.sort(key=_key, reverse=True)
-
-    for name in names[keep:]:
-        try:
-            os.remove(os.path.join(app.instance_path, name))
-        except OSError:
-            pass
-
-
-def list_local_backups():
-    """قائمة النسخ الاحتياطية المحفوظة في مجلد الخادم (الأحدث أولاً)"""
-    items = []
-    try:
-        names = os.listdir(app.instance_path)
-    except OSError:
-        return items
-
-    for f in names:
-        if not _is_backup_file(f):
-            continue
-        path = os.path.join(app.instance_path, f)
-        if not os.path.isfile(path):
-            continue
-        try:
-            st = os.stat(path)
-            size_kb = max(1, round(st.st_size / 1024.0, 1))
-            mtime = datetime.fromtimestamp(st.st_mtime).strftime('%Y-%m-%d %H:%M')
-            ts = st.st_mtime
-        except OSError:
-            continue
-        items.append({'name': f, 'size_kb': size_kb, 'mtime': mtime, '_ts': ts})
-
-    items.sort(key=lambda x: (x['_ts'], x['name']), reverse=True)
-    for item in items:
-        item.pop('_ts', None)
-
-    return items[:MAX_LOCAL_BACKUPS]
-
-
-def safe_backup_path(name):
-    """التحقق من أن اسم الملف ضمن مجلد الخادم ومنع الخروج منه"""
-    if not name or not re.match(r'^[A-Za-z0-9_\-\.]+\.db$', name):
-        return None
-    path = os.path.abspath(os.path.join(app.instance_path, name))
-    if os.path.dirname(path) != os.path.abspath(app.instance_path):
-        return None
-    if os.path.basename(path) == os.path.basename(get_db_path()):
-        return None
-    return path
-
-
-def validate_backup_file(path):
-    """التحقق من صلاحية الملف كقاعدة بيانات SQLite تحتوي الجداول المتوقعة"""
-    try:
-        conn = sqlite3.connect(path)
-        try:
-            tables = set(r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"))
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        return False, 'الملف ليس قاعدة بيانات SQLite صالحة'
-
-    missing = [t for t in REQUIRED_TABLES if t not in tables]
-    if missing:
-        return False, 'الملف لا يحتوي على الجداول المتوقعة: ' + '، '.join(missing)
-
-    return True, ''
-
-
-def restore_database(source_path):
-    """استعادة قاعدة البيانات من ملف نسخة احتياطية (مع حفظ نسخة أمان أولاً)"""
-    db_path = get_db_path()
-
-    # نسخة مؤقتة من الملف المصدر قبل أي حذف تلقائي للنسخ القديمة
-    tmp_src_dir = tempfile.mkdtemp(prefix='khutba_restore_src_')
-    tmp_src = os.path.join(tmp_src_dir, 'source.db')
-    try:
-        shutil.copyfile(source_path, tmp_src)
-
-        # نسخة أمان من الوضع الحالي قبل الاستبدال
-        safety = create_local_backup('khutba_backup_before_restore_')
-
-        # استبدال الملف بشكل آمن
-        tmp_path = db_path + '.restoring'
-        shutil.copyfile(tmp_src, tmp_path)
-        os.replace(tmp_path, db_path)
-    finally:
-        shutil.rmtree(tmp_src_dir, ignore_errors=True)
-
-    # إعادة فتح الاتصالات على الملف الجديد
-    db.session.remove()
-    db.engine.dispose()
-
-    # ترحيل بسيط إن كانت النسخة أقدم من المخطط الحالي
-    try:
-        from migrate import run_migrations
-        run_migrations(db_path, verbose=False)
-    except Exception:
-        pass
-
-    return safety
-
-
-@app.route('/settings/backup/download')
-@admin_required
-def settings_backup_download():
-    """تنزيل نسخة احتياطية من قاعدة البيانات"""
-    db_path = get_db_path()
-    if not os.path.exists(db_path):
-        flash('لا يوجد ملف قاعدة بيانات لتنزيله', 'error')
-        return redirect(url_for('settings'))
-
-    tmp_dir = tempfile.mkdtemp(prefix='khutba_dl_')
-    tmp_path = os.path.join(tmp_dir, 'khutba_distribution.db')
-
-    # نسخة متناسقة حتى لو كانت قاعدة البيانات قيد الكتابة
-    src = sqlite3.connect(db_path)
-    try:
-        dst = sqlite3.connect(tmp_path)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
-    finally:
-        src.close()
-
-    filename = 'khutba_distribution_%s.db' % datetime.now().strftime('%Y%m%d_%H%M%S')
-    response = send_file(tmp_path, as_attachment=True, download_name=filename,
-                         mimetype='application/x-sqlite3')
-
-    @response.call_on_close
-    def _cleanup():
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    return response
-
-
-@app.route('/settings/backup/download/<name>')
-@admin_required
-def settings_backup_download_local(name):
-    """تنزيل نسخة احتياطية محفوظة على الخادم"""
-    path = safe_backup_path(name)
-    if not path or not os.path.isfile(path):
-        flash('ملف النسخة الاحتياطية غير موجود', 'error')
-        return redirect(url_for('settings'))
-    return send_file(path, as_attachment=True, download_name=os.path.basename(path),
-                     mimetype='application/x-sqlite3')
-
-
-@app.route('/settings/backup/restore', methods=['POST'])
-@admin_required
-def settings_backup_restore():
-    """استعادة قاعدة البيانات من ملف مرفوع"""
-    uploaded = request.files.get('backup_file')
-    if not uploaded or not uploaded.filename:
-        flash('يرجى اختيار ملف النسخة الاحتياطية أولاً', 'error')
-        return redirect(url_for('settings'))
-
-    if not uploaded.filename.lower().endswith('.db'):
-        flash('يجب أن يكون الملف بامتداد .db', 'error')
-        return redirect(url_for('settings'))
-
-    tmp_dir = tempfile.mkdtemp(prefix='khutba_restore_')
-    tmp_path = os.path.join(tmp_dir, 'restore.db')
-    try:
-        uploaded.save(tmp_path)
-        ok, message = validate_backup_file(tmp_path)
-        if not ok:
-            flash('تعذرت الاستعادة: ' + message, 'error')
-            return redirect(url_for('settings'))
-
-        safety = restore_database(tmp_path)
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    extra = ' (نسخة أمان محفوظة باسم %s)' % safety if safety else ''
-    flash('تمت استعادة قاعدة البيانات بنجاح' + extra, 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/backup/restore/<name>', methods=['POST'])
-@admin_required
-def settings_backup_restore_local(name):
-    """استعادة قاعدة البيانات من نسخة محفوظة على الخادم"""
-    path = safe_backup_path(name)
-    if not path or not os.path.isfile(path):
-        flash('ملف النسخة الاحتياطية غير موجود', 'error')
-        return redirect(url_for('settings'))
-
-    ok, message = validate_backup_file(path)
-    if not ok:
-        flash('تعذرت الاستعادة: ' + message, 'error')
-        return redirect(url_for('settings'))
-
-    safety = restore_database(path)
-    extra = ' (نسخة أمان محفوظة باسم %s)' % safety if safety else ''
-    flash('تمت استعادة قاعدة البيانات بنجاح' + extra, 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/admin/password', methods=['POST'])
-@admin_required
-def settings_change_admin_password():
-    """تغيير كلمة مرور المدير"""
-    new_password = request.form.get('new_password', '') or ''
-    confirm_password = request.form.get('confirm_password', '') or ''
-    current_password = request.form.get('current_password', '') or ''
-
-    if len(new_password) < 6:
-        flash('كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل', 'error')
-        return redirect(url_for('settings'))
-
-    if new_password != confirm_password:
-        flash('كلمة المرور الجديدة وتأكيدها غير متطابقين', 'error')
-        return redirect(url_for('settings'))
-
-    # التحقق من كلمة المرور الحالية (إ 추가ً إلى تسجيل الدخول الحالي)
-    if current_password and not verify_admin_password(current_password):
-        flash('كلمة المرور الحالية غير صحيحة', 'error')
-        return redirect(url_for('settings'))
-
-    AppSetting.set(ADMIN_PASSWORD_KEY, generate_password_hash(new_password))
-    flash('تم تغيير كلمة مرور المدير بنجاح', 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/admin/password/reset', methods=['POST'])
-@admin_required
-def settings_reset_admin_password():
-    """الرجوع إلى كلمة المرور من متغير البيئة ADMIN_PASSWORD"""
-    current_password = request.form.get('current_password', '') or ''
-    if not verify_admin_password(current_password):
-        flash('كلمة المرور الحالية غير صحيحة', 'error')
-        return redirect(url_for('settings'))
-
-    AppSetting.delete(ADMIN_PASSWORD_KEY)
-    flash('تمت إعادة كلمة مرور المدير إلى القيمة الأساسية (متغير البيئة ADMIN_PASSWORD)', 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings')
-@admin_required
-def settings():
-    """صفحة الإعدادات"""
-    engine = DistributionEngine()
-    mosques = Mosque.query.all()
-    khutbas = Khateb.query.all()
-    assignments = Assignment.query.order_by(Assignment.week_date.desc(), Assignment.id.asc()).all()
-    schedules = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).limit(50).all()
-    
-    # قائمة الأسابيع المتاحة
-    week_dates = sorted(set([a.week_date for a in assignments]), reverse=True)
-    
-    total_mosques = len(mosques)
-    for khateb in khutbas:
-        visited = khateb.get_visited_mosques_list()
-        khateb._progress = round((len(visited) / total_mosques * 100), 1) if total_mosques else 0
-        khateb._should_change = engine.should_change_topic(khateb.id)
-        khateb._visited_count = len(visited)
-        khateb._forbidden = khateb.get_forbidden_mosques_list()
-        # معلومات إضافية للوحة "خطباء يحتاجون موضوعاً جديداً" والدخول
-        khateb._need_new_topic = bool(total_mosques) and khateb._visited_count >= total_mosques
-        khateb._has_password = bool(khateb.password_hash)
-        khateb._wa_link = whatsapp_link(khateb.phone, khateb.name)
-        khateb._seasonal_active = khateb.is_seasonal_active()
-
-    # الخطباء الذين لديهم موضوع موسمي ساري الآن
-    seasonal_khutbas = [k for k in khutbas if k.is_seasonal_active()]
-
-    return render_template('settings.html',
-                         mosques=mosques,
-                         khutbas=khutbas,
-                         assignments=assignments,
-                         schedules=schedules,
-                         week_dates=week_dates,
-                         total_mosques=total_mosques,
-                         backups=list_local_backups(),
-                         seasonal_khutbas=seasonal_khutbas,
-                         admin_password_source=admin_password_source())
-
-
-@app.route('/settings/reset/distributions', methods=['POST'])
-@admin_required
-def settings_reset_distributions():
-    """تصفير التوزيعات فقط"""
-    try:
-        Assignment.query.delete()
-        WeeklySchedule.query.delete()
-        db.session.commit()
-        flash('تم تصفير جميع التعيينات والجداول الأسبوعية بنجاح', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'حدث خطأ أثناء التصفير: {str(e)}', 'error')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/reset/khatibs_progress', methods=['POST'])
-@admin_required
-def settings_reset_khatibs_progress():
-    """إعادة تعيين تقدم الخطباء"""
-    try:
-        for khateb in Khateb.query.all():
-            khateb.mosques_visited = json.dumps([])
-            khateb.rest_weeks = 0
-        db.session.commit()
-        flash('تم إعادة تعيين تقدم جميع الخطباء بنجاح', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'حدث خطأ أثناء التصفير: {str(e)}', 'error')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/reset/all', methods=['POST'])
-@admin_required
-def settings_reset_all():
-    """تصفير كامل للنظام مع الاحتفاظ بالمساجد والخطباء"""
-    # نسخة أمان تلقائية قبل التصفير (حماية من التصفير بالخطأ)
-    safety = create_local_backup('khutba_backup_before_reset_')
-    try:
-        Assignment.query.delete()
-        WeeklySchedule.query.delete()
-        for khateb in Khateb.query.all():
-            khateb.mosques_visited = json.dumps([])
-            khateb.rest_weeks = 0
-        db.session.commit()
-        extra = ' (نسخة أمان محفوظة باسم %s)' % safety if safety else ''
-        flash('تم تصفير النظام بالكامل مع الاحتفاظ بالمساجد والخطباء' + extra, 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'حدث خطأ أثناء التصفير: {str(e)}', 'error')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/reset/everything', methods=['POST'])
-@admin_required
-def settings_reset_everything():
-    """حذف جميع البيانات"""
-    # نسخة أمان تلقائية قبل الحذف (حماية من التصفير بالخطأ)
-    safety = create_local_backup('khutba_backup_before_reset_')
-    try:
-        Assignment.query.delete()
-        WeeklySchedule.query.delete()
-        Khateb.query.delete()
-        Mosque.query.delete()
-        db.session.commit()
-        extra = ' (نسخة أمان محفوظة باسم %s)' % safety if safety else ''
-        flash('تم حذف جميع المساجد والخطباء والتعيينات' + extra, 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'حدث خطأ أثناء الحذف: {str(e)}', 'error')
-    return redirect(url_for('settings'))
-
-
-@app.route('/assignment/<int:assignment_id>/update', methods=['POST'])
-@admin_required
-def assignment_update(assignment_id):
-    """تعديل تعيين محدد"""
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment:
-        return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
-    
-    khateb_id = request.form.get('khateb_id', type=int)
-    mosque_id = request.form.get('mosque_id', type=int)
-    week_date_str = request.form.get('week_date')
-    khutba_topic = request.form.get('khutba_topic')
-    status = request.form.get('status')
-    
-    target_khateb_id = khateb_id if khateb_id is not None else assignment.khateb_id
-    target_mosque_id = mosque_id if mosque_id is not None else assignment.mosque_id
-    target_week_date = assignment.week_date
-    if week_date_str:
-        try:
-            target_week_date = datetime.strptime(week_date_str, '%Y-%m-%d').date()
-        except ValueError:
-            pass
-    target_status = status if status is not None else assignment.status
-
-    if target_status != 'cancelled':
-        # التحقق من عدم تعيين نفس الخطيب في أكثر من مسجد في نفس الجمعة
-        dup_khateb = Assignment.query.filter(
-            Assignment.khateb_id == target_khateb_id,
-            Assignment.week_date == target_week_date,
-            Assignment.status != 'cancelled',
-            Assignment.id != assignment.id
-        ).first()
-        if dup_khateb:
-            return jsonify({'success': False, 'message': 'لا يمكن توزيع الخطيب على أكثر من مسجد في نفس الجمعة'}), 400
-
-        # التحقق من عدم تعيين أكثر من خطيب لنفس المسجد في نفس الجمعة
-        dup_mosque = Assignment.query.filter(
-            Assignment.mosque_id == target_mosque_id,
-            Assignment.week_date == target_week_date,
-            Assignment.status != 'cancelled',
-            Assignment.id != assignment.id
-        ).first()
-        if dup_mosque:
-            return jsonify({'success': False, 'message': 'هذا المسجد مخصص له خطيب آخر بالفعل في نفس الجمعة'}), 400
-
-    if khateb_id:
-        assignment.khateb_id = khateb_id
-    if mosque_id:
-        assignment.mosque_id = mosque_id
-    if week_date_str:
-        assignment.week_date = target_week_date
-    if khutba_topic is not None:
-        assignment.khutba_topic = khutba_topic
-    if status:
-        assignment.status = status
-    
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'تم تعديل التعيين بنجاح'})
-
-
-@app.route('/khateb/<int:khateb_id>/special/update', methods=['POST'])
-@admin_required
-def khateb_special_update(khateb_id):
-    """تحديث ظروف الخطيب الخاصة"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        return jsonify({'success': False, 'message': 'الخطيب غير موجود'}), 404
-    
-    availability_mode = request.form.get('availability_mode', 'always')
-    alternate_offset = request.form.get('alternate_offset', 0, type=int)
-    forbidden_mosques = request.form.getlist('forbidden_mosques')
-    
-    khateb.availability_mode = availability_mode
-    khateb.alternate_offset = alternate_offset
-    khateb.forbidden_mosques = json.dumps([int(m) for m in forbidden_mosques if m])
-    
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'تم حفظ ظروف الخطيب بنجاح'})
-
-
-@app.route('/settings/week/<date>/delete', methods=['POST'])
-@admin_required
-def settings_delete_week(date):
-    """حذف جميع تعيينات أسبوع معين"""
-    try:
-        week_date = datetime.strptime(date, '%Y-%m-%d').date()
-        Assignment.query.filter_by(week_date=week_date).delete()
-        WeeklySchedule.query.filter_by(week_date=week_date).delete()
-        db.session.commit()
-        flash(f'تم حذف جميع تعيينات أسبوع {date} بنجاح', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'حدث خطأ: {str(e)}', 'error')
-    return redirect(url_for('settings'))
-
-
-@app.route('/settings/week/<date>/reassign', methods=['POST'])
-@admin_required
-def settings_reassign_week(date):
-    """إعادة توزيع أسبوع معين تلقائياً"""
-    try:
-        week_date = datetime.strptime(date, '%Y-%m-%d').date()
-        engine = DistributionEngine()
-        # حذف التعيينات السابقة لهذا الأسبوع
-        Assignment.query.filter_by(week_date=week_date).delete()
-        WeeklySchedule.query.filter_by(week_date=week_date).delete()
-        db.session.commit()
-        success, message = engine.distribute_for_week(week_date)
-        if success:
-            flash(f'تم إعادة توزيع أسبوع {date} بنجاح', 'success')
-        else:
-            flash(message, 'error')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'حدث خطأ: {str(e)}', 'error')
-    return redirect(url_for('settings'))
-
-
-@app.route('/api/khateb/<int:khateb_id>/schedule')
-@admin_required
-def api_khateb_schedule(khateb_id):
-    """عرض جدول خطيب معين لأسابيع قادمة"""
-    weeks = request.args.get('weeks', type=int)
-    engine = DistributionEngine()
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        return jsonify({'error': 'الخطيب غير موجود'}), 404
-    
-    today = date.today()
-    current = engine.get_current_friday()
-    
-    scheduled_weeks = [
-        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.week_date >= today)            .distinct().order_by(Assignment.week_date.asc()).all()
-    ]
-    furthest_week = max(scheduled_weeks) if scheduled_weeks else current
-    end_date = max(furthest_week, current + timedelta(days=7 * 3))
-    
-    if weeks is not None:
-        total_weeks = max(weeks, ((end_date - current).days // 7) + 1)
-    else:
-        total_weeks = ((end_date - current).days // 7) + 1
-    
-    total_weeks = max(4, min(24, total_weeks))
-    base_week_dates = [current + timedelta(days=7 * i) for i in range(total_weeks)]
-    
-    khateb_weeks = [
-        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.khateb_id == khateb_id, Assignment.week_date >= today)            .distinct().all()
-    ]
-    week_dates = sorted(list(set(base_week_dates) | set(khateb_weeks)))
-    system_distributed_set = set(scheduled_weeks)
-    
-    schedule = []
-    for week_date in week_dates:
-        assignment = Assignment.query.filter_by(khateb_id=khateb_id, week_date=week_date).first()
-        is_distributed_week = week_date in system_distributed_set
-        if assignment:
-            schedule.append({
-                'week_date': week_date.strftime('%Y-%m-%d'),
-                'has_assignment': True,
-                'mosque_name': assignment.mosque.name if assignment.mosque else None,
-                'topic': assignment.khutba_topic,
-                'status': assignment.status,
-                'is_rest': False
-            })
-        else:
-            schedule.append({
-                'week_date': week_date.strftime('%Y-%m-%d'),
-                'has_assignment': False,
-                'is_rest': is_distributed_week,
-                'rest_label': 'راحة دورية (احتياط)' if is_distributed_week else 'لم يتم التوزيع بعد'
-            })
-    
-    return jsonify({
-        'khateb': {'id': khateb.id, 'name': khateb.name, 'current_topic': khateb.current_topic},
-        'schedule': schedule
-    })
-
-
-@app.route('/api/distribution/history')
-@admin_required
-def api_distribution_history():
-    """API للحصول على سجل التوزيعات السابقة"""
-    # الحصول على آخر 12 أسبوع
-    weeks = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).limit(12).all()
-    
-    history = []
-    for week in weeks:
-        assignment_count = Assignment.query.filter_by(week_date=week.week_date).count()
-        history.append({
-            'week_date': week.week_date.strftime('%Y-%m-%d'),
-            'assignment_count': assignment_count,
-            'khateb_count': len(json.loads(week.khateb_ids or '[]'))
-        })
-    
-    return jsonify(history)
-
-
-@app.route('/api/distribution/week/<date>')
-@admin_required
-def api_week_details(date):
-    """API للحصول على تفاصيل أسبوع معين"""
-    try:
-        week_date = datetime.strptime(date, '%Y-%m-%d').date()
+        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
     except ValueError:
-        return jsonify({'error': 'تنسيق تاريخ غير صحيح'}), 400
-    
-    assignments = Assignment.query.filter_by(week_date=week_date).all()
-    active_assignments = [a for a in assignments if a.status != 'cancelled']
-    assigned_ids = {a.khateb_id for a in active_assignments}
-    
-    engine = DistributionEngine()
-    available_khutbas = engine.get_available_khutbas(week_date)
-    total_mosques = Mosque.query.count()
-    
-    reserve_khutbas = []
-    for khateb in available_khutbas:
-        if khateb.id not in assigned_ids:
-            visited = khateb.get_visited_mosques_list()
-            reserve_khutbas.append({
-                'id': khateb.id,
-                'name': khateb.name,
-                'phone': khateb.phone or '',
-                'current_topic': khateb.current_topic,
-                'visited_count': len(visited),
-                'remaining_mosques_count': max(0, total_mosques - len(visited)),
-                'status_label': 'راحة دورية (جاهز كاحتياط)'
-            })
-    
-    result = {
-        'week_date': date,
-        'assignments': [assignment.to_dict() for assignment in assignments],
-        'reserve_khutbas': reserve_khutbas
-    }
-    
-    return jsonify(result)
+        flash('صيغة التاريخ غير صالحة', 'danger')
+        return redirect(url_for('distribution'))
 
-
-@app.route('/api/assignment/<int:assignment_id>')
-@admin_required
-def api_assignment_details(assignment_id):
-    """API للحصول على تفاصيل تعيين معين"""
-    assignment = Assignment.query.get(assignment_id)
-    
-    if not assignment:
-        return jsonify({'error': 'التعيين غير موجود'}), 404
-    
-    details = assignment.to_dict()
-    details.update({
-        'created_at': assignment.created_at.strftime('%Y-%m-%d %H:%M:%S') if assignment.created_at else '-'
-    })
-    
-    return jsonify(details)
-
-
-@app.route('/api/assignment/<int:assignment_id>', methods=['DELETE'])
-@admin_required
-def api_delete_assignment(assignment_id):
-    """API لحذف تعيين"""
-    assignment = Assignment.query.get(assignment_id)
-    
-    if not assignment:
-        return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
-    
-    db.session.delete(assignment)
+    deleted_assignments = Assignment.query.filter_by(week_date=target_date).delete()
+    deleted_sched = WeeklySchedule.query.filter_by(week_date=target_date).delete()
     db.session.commit()
-    
-    return jsonify({'success': True, 'message': 'تم حذف التعيين بنجاح'})
 
+    if deleted_assignments or deleted_sched:
+        flash(f'تم مسح توزيعة جمعة {date_str} بنجاح ({deleted_assignments} تعيين)', 'info')
+    else:
+        flash(f'لا توجد توزيعة مسجلة ليوم جمعة {date_str}', 'warning')
 
-def cancel_and_reassign(assignment, update_visited=True, attach_original=True):
-    """منطق مشترك للاعتذار عن تعيين.
-
-    - يلغي التعيين الأصلي (status = 'cancelled')
-    - يبحث عن خطيب بديل لنفس المسجد (غير مُعين لنفس الأسبوع ونفسه لا ونفس الموضوع لا)
-    - ينشئ للبديل تعييناً بحالة 'pending'
-    - عند update_visited=True تُحدَّث قائمة المساجد المزارة للبديل
-    - عند attach_original=True يُلحق الخطيب الأصلي بمسجد آخر غير مخصص للأسبوع
-
-    يعيد: (replacement_assignment_id, attached_assignment_id)
-    """
-    target_week = assignment.week_date
-    target_mosque = assignment.mosque_id
-    original_khateb_id = assignment.khateb_id
-    original_topic = assignment.khutba_topic
-
-    # إلغاء التعيين الأصلي
-    assignment.status = 'cancelled'
-    db.session.add(assignment)
-    db.session.flush()
-
-    # من المستبعدين: الذين لديهم تعيين (أي حالة ليست ملغية) لنفس الأسبوع
-    assigned_khateb_ids = set(a.khateb_id for a in Assignment.query.filter(Assignment.week_date==target_week, Assignment.status!='cancelled').all())
-
-    # بناء قائمة المرشحين (نتجاهل rest_weeks كما طلبت)
-    candidates = []
-    for k in Khateb.query.all():
-        if k.is_active not in (1, True):
-            continue
-        if not k.has_profile():
-            continue
-        if k.id == original_khateb_id:
-            continue
-        if k.id in assigned_khateb_ids:
-            continue
-        if target_mosque in k.get_forbidden_mosques_list():
-            continue
-        if k.current_topic == original_topic:
-            continue
-        visited = set(k.get_visited_mosques_list())
-        preferred = (target_mosque not in visited)
-        candidates.append((preferred, k))
-
-    candidates.sort(key=lambda x: (not x[0], x[1].id))
-
-    new_assignment_id = None
-    if candidates:
-        replacement_khateb = candidates[0][1]
-        new_assignment = Assignment(
-            khateb_id=replacement_khateb.id,
-            mosque_id=target_mosque,
-            week_date=target_week,
-            khutba_topic=replacement_khateb.current_topic,
-            status='confirmed',
-            replacement_of_id=assignment.id
-        )
-        db.session.add(new_assignment)
-        db.session.flush()
-        new_assignment_id = new_assignment.id
-
-        # تحديث زيارات الخطيب البديل
-        if update_visited:
-            visited = replacement_khateb.get_visited_mosques_list()
-            if target_mosque not in visited:
-                visited.append(target_mosque)
-                replacement_khateb.mosques_visited = json.dumps(visited)
-                db.session.add(replacement_khateb)
-
-    # الآن محاولة إلحاق الخطيب الأصلي بمسجد آخر إن وُجد مسجد غير مخصص
-    # ⚠️ لا يُلحق إذا كان لديه تعيين فعّال آخر في نفس الأسبوع (لا يمكن خطبتان في جمعة واحدة)
-    attached_assignment_id = None
-    if attach_original:
-        has_active = Assignment.query.filter(
-            Assignment.khateb_id == original_khateb_id,
-            Assignment.week_date == target_week,
-            Assignment.status != 'cancelled',
-            Assignment.id != assignment.id
-        ).first()
-        if has_active:
-            # لديه تعيين آخر فعّال — لا نلحقه بمسجد ثانٍ
-            pass
-        else:
-            all_mosques = [m.id for m in Mosque.query.all()]
-            assigned_mosques = set(a.mosque_id for a in Assignment.query.filter(Assignment.week_date==target_week, Assignment.status!='cancelled').all())
-            unassigned = [m for m in all_mosques if m not in assigned_mosques]
-
-            if unassigned:
-                # اختر مسجد مفضّل لم يزره الخطيب الأصلي
-                orig_khateb = Khateb.query.get(original_khateb_id)
-                preferred = [m for m in unassigned if m not in orig_khateb.get_visited_mosques_list()]
-                chosen = preferred[0] if preferred else unassigned[0]
-                new_attach = Assignment(
-                    khateb_id=original_khateb_id,
-                    mosque_id=chosen,
-                    week_date=target_week,
-                    khutba_topic=orig_khateb.current_topic,
-                    status='confirmed'
-                )
-                db.session.add(new_attach)
-                db.session.flush()
-                attached_assignment_id = new_attach.id
-
-                # تحديث زيارات الخطيب الأصلي
-                if update_visited:
-                    visited = orig_khateb.get_visited_mosques_list()
-                    if chosen not in visited:
-                        visited.append(chosen)
-                        orig_khateb.mosques_visited = json.dumps(visited)
-                        db.session.add(orig_khateb)
-
-    return new_assignment_id, attached_assignment_id
-
+    if redirect_date and redirect_date != date_str:
+        return redirect(url_for('distribution', date=redirect_date))
+    return redirect(url_for('distribution', date=date_str))
 
 @app.route('/assignment/<int:assignment_id>/apologize', methods=['POST'])
 @admin_required
-def api_apologize_assignment(assignment_id):
-    """API لمعالجة اعتذار عن تعيين محدد (مسجد بعينه).
+def admin_apologize_assignment(assignment_id):
+    """تسجيل اعتذار خطيب من قبل الإدارة والبحث عن بديل تلقائياً"""
+    success, msg, replacement = engine.apologize_and_reassign(assignment_id)
+    flash(msg, 'success' if success else 'warning')
+    a = db.session.get(Assignment, assignment_id)
+    return redirect(url_for('distribution', date=a.week_date.strftime('%Y-%m-%d') if a else None))
 
-    سلوك:
-    - يتم إلغاء التعيين الأصلي (status = 'cancelled')
-    - محاولة إيجاد خطيب بديل (من لم يُعين لنفس الأسبوع، لا يكون نفس الخطيب، لا يملك نفس الموضوع الحالي)
-    - إذا وُجد بديل، يُنشئ له تعيينًا للمسجد الأصلي (status='pending') ويُحدّث زيارته
-    - ثم نحاول إلحاق الخطيب الأصلي بمسجد آخر غير المقيّد (إذا وُجد مسجد غير مخصص لهذا الأسبوع)
-    """
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment:
-        return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
-
-    new_assignment_id, attached_assignment_id = cancel_and_reassign(
-        assignment, update_visited=True, attach_original=True
-    )
-
-    db.session.commit()
-
-    if new_assignment_id:
-        return jsonify({'success': True, 'message': 'تم إلغاء التعيين وإيجاد بديل. تم إلحاقك بمسجد آخر.', 'new_assignment_id': new_assignment_id, 'attached_assignment_id': attached_assignment_id})
-    else:
-        return jsonify({'success': False, 'message': 'تم إلغاء التعيين لكن لم يتم العثور على بديل حالياً'})
-
-
-@app.route('/khateb/<int:khateb_id>/apologize_week', methods=['POST'])
+@app.route('/assignment/<int:assignment_id>/delete', methods=['POST'])
 @admin_required
-def api_apologize_khateb_week(khateb_id):
-    """API لمعالجة اعتذار الخطيب عن الأسبوع بالكامل."""
-    engine = DistributionEngine()
-    target_week = engine.get_current_friday()
-
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        return jsonify({'success': False, 'message': 'الخطيب غير موجود'}), 404
-
-    # الحصول على التعيين (إن وُجد) لهذا الخطيب في الأسبوع
-    assignment = Assignment.query.filter_by(khateb_id=khateb_id, week_date=target_week).filter(Assignment.status!='cancelled').first()
-    if not assignment:
-        # ليس له تعيين لهذا الأسبوع
-        khateb.rest_weeks = 1
-        db.session.add(khateb)
+def delete_assignment(assignment_id):
+    a = db.session.get(Assignment, assignment_id)
+    if a:
+        date_str = a.week_date.strftime('%Y-%m-%d')
+        db.session.delete(a)
         db.session.commit()
-        return jsonify({'success': True, 'message': 'تم تسجيل راحة للأسبوع، وليس لديك تعيين لهذا الأسبوع'})
-
-    # إلغاء التعيين وإنشاء بديل
-    # نستخدم نفس منطق البحث عن بديل في الاعتذار عن تعيين واحد
-    resp = api_apologize_assignment(assignment.id)
-
-    # تأكدنا من وضع الراحة للخطيب الذي اعتذر
-    khateb.rest_weeks = 1
-    db.session.add(khateb)
-    db.session.commit()
-
-    return resp
+        flash('تم حذف التعيين', 'info')
+        return redirect(url_for('distribution', date=date_str))
+    return redirect(url_for('distribution'))
 
 
-@app.route('/khateb/<int:khateb_id>/update_visits', methods=['POST'])
-@admin_required
-def api_update_visited_mosques(khateb_id):
-    """API لتحديث قائمة المساجد المزارة"""
-    data = request.get_json()
-    mosque_id = data.get('mosque_id')
-    
-    if not mosque_id:
-        return jsonify({'success': False, 'message': 'معرف المسجد مطلوب'}), 400
-    
-    engine = DistributionEngine()
-    success, message = engine.update_khateb_mosques_visited(khateb_id, mosque_id)
-    
-    return jsonify({'success': success, 'message': message})
-
-
-@app.route('/mosque/<int:mosque_id>/delete', methods=['DELETE'])
-@admin_required
-def api_delete_mosque(mosque_id):
-    """API لحذف مسجد"""
-    mosque = Mosque.query.get(mosque_id)
-    
-    if not mosque:
-        return jsonify({'success': False, 'message': 'المسجد غير موجود'}), 404
-    
-    # حذف التعيينات المرتبطة
-    assignments = Assignment.query.filter_by(mosque_id=mosque_id).all()
-    for assignment in assignments:
-        db.session.delete(assignment)
-    
-    db.session.delete(mosque)
-    db.session.commit()
-    
-    return jsonify({'success': True, 'message': 'تم حذف المسجد بنجاح'})
-
-
-@app.route('/mosque/<int:mosque_id>/edit', methods=['POST'])
-@admin_required
-def api_edit_mosque(mosque_id):
-    """API لتعديل مسجد"""
-    mosque = Mosque.query.get(mosque_id)
-    
-    if not mosque:
-        return jsonify({'success': False, 'message': 'المسجد غير موجود'}), 404
-    
-    name = request.form.get('name')
-    address = request.form.get('address')
-    capacity = request.form.get('capacity', type=int)
-    
-    if not name:
-        return jsonify({'success': False, 'message': 'اسم المسجد مطلوب'}), 400
-    
-    mosque.name = name
-    mosque.address = address
-    mosque.capacity = capacity
-    
-    db.session.commit()
-    
-    return jsonify({'success': True, 'message': 'تم تحديث المسجد بنجاح'})
-
-
-@app.route('/khateb/<int:khateb_id>/delete', methods=['DELETE'])
-@admin_required
-def api_delete_khateb(khateb_id):
-    """API لحذف خطيب"""
-    khateb = Khateb.query.get(khateb_id)
-    
-    if not khateb:
-        return jsonify({'success': False, 'message': 'الخطيب غير موجود'}), 404
-    
-    # حذف التعيينات المرتبطة
-    assignments = Assignment.query.filter_by(khateb_id=khateb_id).all()
-    for assignment in assignments:
-        db.session.delete(assignment)
-    
-    db.session.delete(khateb)
-    db.session.commit()
-    
-    return jsonify({'success': True, 'message': 'تم حذف الخطيب بنجاح'})
-
-
-# ============================================
-# صفحات الدخول والخروج
-# ============================================
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """صفحة تسجيل الدخول (مدير / خطيب)"""
-    if session.get('role') == 'admin':
-        return redirect(url_for('settings'))
-    if session.get('role') == 'khateb':
-        return redirect(url_for('my'))
-
-    if request.method == 'POST':
-        role = request.form.get('role', 'admin')
-
-        if role == 'admin':
-            password = request.form.get('password', '') or ''
-            if password and verify_admin_password(password):
-                login_admin()
-                flash('تم تسجيل الدخول كمدير بنجاح', 'success')
-                return redirect(url_for('settings'))
-            flash('كلمة المرور غير صحيحة', 'error')
-            return render_template('login.html', role='admin')
-
-        # دخول الخطيب: رقم الجوال + كلمة المرور
-        # ملاحظة: حقل كلمة المرور للخطيب اسمه khateb_password (مختلف عن password الخاص بالمدير)
-        # حتى لا يقرأ الخادم قيمة حقل المدير الفارغ عند إرسال النموذج من المتصفح.
-        phone = (request.form.get('phone', '') or '').strip()
-        password = (request.form.get('khateb_password', '') or '').strip()
-        if not password:
-            password = (request.form.get('password', '') or '').strip()
-        normalized = normalize_phone(phone)
-
-        khateb = None
-        if normalized:
-            for k in Khateb.query.all():
-                if normalize_phone(k.phone) == normalized:
-                    khateb = k
-                    break
-
-        if not khateb:
-            flash('لا يوجد خطيب مسجل بهذا الرقم', 'error')
-        elif khateb.is_active in (None, 0):
-            flash('حسابك بانتظار موافقة المدير على الدخول، يرجى التواصل مع الإدارة', 'error')
-        elif not khateb.password_hash:
-            flash('لم يتم تعيين كلمة مرور لهذا الحساب، يرجى التواصل مع الإدارة', 'error')
-        elif not check_password_hash(khateb.password_hash, password):
-            flash('كلمة المرور غير صحيحة', 'error')
-        else:
-            login_khateb(khateb.id)
-            flash('أهلاً بك %s' % khateb.name, 'success')
-            return redirect(url_for('my'))
-
-        return render_template('login.html', role='khateb')
-
-    return render_template('login.html', role='admin')
-
-
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    """تسجيل خطيب جديد: الاسم + رقم الجوال + كلمة مرور يختارها بنفسه.
-    يبقى الحساب معطّلاً (is_active = 0) حتى يسمح به المدير من صفحة الإعدادات.
-    """
-    if request.method == 'POST':
-        name = (request.form.get('name', '') or '').strip()
-        phone = (request.form.get('phone', '') or '').strip()
-        password = (request.form.get('password', '') or '').strip()
-        confirm_password = (request.form.get('confirm_password', '') or '').strip()
-
-        if not name or not phone or not password:
-            flash('الاسم ورقم الجوال وكلمة المرور مطلوبة', 'error')
-            return render_template('register.html')
-        if len(password) < 6:
-            flash('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'error')
-            return render_template('register.html')
-        if confirm_password and password != confirm_password:
-            flash('كلمتا المرور غير متطابقتين', 'error')
-            return render_template('register.html')
-
-        # منع تكرار رقم الجوال (مع مراعاة اختلاف صيغة الرقم)
-        normalized = normalize_phone(phone)
-        for existing in Khateb.query.all():
-            if normalize_phone(existing.phone) == normalized:
-                flash('رقم الجوال مسجل مسبقاً، يرجى التواصل مع الإدارة لتفعيل حسابك', 'error')
-                return render_template('register.html')
-
-        khateb = Khateb(
-            name=name,
-            phone=phone,
-            current_topic='موضوع افتراضي',
-            mosques_visited=json.dumps([]),
-            availability_mode='always',
-            alternate_offset=0,
-            forbidden_mosques=json.dumps([]),
-            password_hash=generate_password_hash(password),
-            profile_complete=0,
-            is_active=0,
-        )
-        db.session.add(khateb)
-        db.session.commit()
-
-        # رمز مؤقت يتيح للخطيب إكمال ملفه (موضوع الخطبة + المساجد + نظام التوفر)
-        # قبل موافقة المدير، دون الحاجة لتسجيل الدخول.
-        token = secrets.token_urlsafe(24)
-        app_setting = AppSetting.query.get('register_token_%s' % token)
-        if app_setting:
-            db.session.delete(app_setting)
-        db.session.add(AppSetting(
-            key='register_token_%s' % token,
-            value=json.dumps({'khateb_id': khateb.id, 'created': datetime.utcnow().isoformat()}),
-            updated_at=datetime.utcnow()
-        ))
-        db.session.commit()
-
-        flash('تم تسجيل طلبك بنجاح. أكمل بياناتك الآن (موضوع الخطبة والمساجد)، ثم بانتظار موافقة المدير.', 'success')
-        return redirect(url_for('my_profile_setup', token=token))
-
-    return render_template('register.html')
-
-
-@app.route('/logout')
-def logout():
-    """تسجيل الخروج"""
-    logout_session()
-    flash('تم تسجيل الخروج', 'success')
-    return redirect(url_for('login'))
-
-
-@app.route('/my/profile', methods=['GET', 'POST'])
-def my_profile_setup():
-    """صفحة ملف الخطيب: موضوع الخطبة الحالية + المساجد المزارة + المستثناة + نظام التوفر
-
-    يمكن الوصول إليها:
-    - بعد التسجيل مباشرة عبر رمز مؤقت (token) قبل موافقة المدير.
-    - بعد تسجيل الدخول (لتعديل البيانات لاحقاً).
-    """
-    khateb = None
-    token = (request.values.get('token', '') or '').strip()
-
-    if token:
-        setting = AppSetting.query.get('register_token_%s' % token)
-        if not setting:
-            flash('رابط الإعداد غير صالح أو انتهت صلاحيته، يرجى تسجيل الدخول أو إعادة التسجيل', 'error')
-            return redirect(url_for('login'))
-        try:
-            data = json.loads(setting.value or '{}')
-        except Exception:
-            data = {}
-        khateb = Khateb.query.get(data.get('khateb_id'))
-        if not khateb:
-            flash('تعذّر العثور على الحساب', 'error')
-            return redirect(url_for('login'))
-    else:
-        khateb = current_khateb()
-        if not khateb:
-            flash('يرجى تسجيل الدخول أولاً', 'error')
-            return redirect(url_for('login'))
-
-    if request.method == 'POST':
-        topic = (request.form.get('current_topic', '') or '').strip()
-        visited_raw = request.form.getlist('visited_mosques')
-        forbidden_raw = request.form.getlist('forbidden_mosques')
-        availability_mode = request.form.get('availability_mode', 'always')
-        if availability_mode not in ('always', 'alternate'):
-            availability_mode = 'always'
-        try:
-            alternate_offset = int(request.form.get('alternate_offset', 0) or 0)
-        except (TypeError, ValueError):
-            alternate_offset = 0
-
-        if not topic:
-            flash('يرجى كتابة موضوع خطبتك الحالية', 'error')
-        else:
-            # تحويل القوائم إلى أرقام صحيحة
-            try:
-                visited = sorted({int(m) for m in visited_raw})
-                forbidden = sorted({int(m) for m in forbidden_raw})
-            except (TypeError, ValueError):
-                visited, forbidden = [], []
-
-            khateb.current_topic = topic[:300]
-            khateb.mosques_visited = json.dumps(visited)
-            khateb.forbidden_mosques = json.dumps(forbidden)
-            khateb.availability_mode = availability_mode
-            khateb.alternate_offset = alternate_offset
-            khateb.profile_complete = 1
-            db.session.add(khateb)
-
-            # استهلاك الرمز المؤقت بعد الحفظ
-            if token:
-                setting = AppSetting.query.get('register_token_%s' % token)
-                if setting:
-                    db.session.delete(setting)
-            db.session.commit()
-
-            flash('تم حفظ بياناتك بنجاح. حسابك الآن بانتظار موافقة مدير النظام، وسيظهر تلقائياً في توزيع الجدول بعد الموافقة.', 'success')
-            return redirect(url_for('login'))
-
-    mosques = Mosque.query.order_by(Mosque.name).all()
-    visited = set(khateb.get_visited_mosques_list())
-    forbidden = set(khateb.get_forbidden_mosques_list())
-
-    return render_template('my_profile.html',
-                           khateb=khateb,
-                           mosques=mosques,
-                           visited=visited,
-                           forbidden=forbidden,
-                           token=token)
-
-
-# ============================================
-# صفحة الخطيب /my
-# ============================================
+# ====================================================
+# بوابة الخطيب الخاصة (Khateeb Mobile Portal)
+# ====================================================
 
 @app.route('/my')
 @login_required
-def my():
-    """صفحة الخطيب: الجدول + تأكيد الأداء + إرسال موضوع جديد"""
+def my_portal():
     khateb = current_khateb()
     if not khateb:
-        logout_session()
+        flash('الرجاء الدخول بحساب الخطيب', 'warning')
         return redirect(url_for('login'))
 
-    engine = DistributionEngine()
-    total_mosques = Mosque.query.count()
-    visited = khateb.get_visited_mosques_list()
-    visited_count = len(visited)
-    needs_new_topic = bool(total_mosques) and visited_count >= total_mosques
-
-    # جدول الأسابيع: يتم احتسابه ديناميكياً ليشمل كافة الأسابيع المجدولة في النظام
-    # وأي تعيينات قادمة للخطيب حتى لا تُحجب أي جمعة تم توزيعها
     today = date.today()
-    current_friday = engine.get_current_friday()
-
-    scheduled_weeks = [
-        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.week_date >= today)            .distinct().order_by(Assignment.week_date.asc()).all()
-    ]
-    furthest_week = max(scheduled_weeks) if scheduled_weeks else current_friday
-    end_date = max(furthest_week, current_friday + timedelta(days=7 * 3))
-    total_weeks = ((end_date - current_friday).days // 7) + 1
-    total_weeks = max(4, min(24, total_weeks))
-    base_week_dates = [current_friday + timedelta(days=7 * i) for i in range(total_weeks)]
-    
-    khateb_weeks = [
-        r[0] for r in db.session.query(Assignment.week_date)            .filter(Assignment.khateb_id == khateb.id, Assignment.week_date >= today)            .distinct().all()
-    ]
-    week_dates = sorted(list(set(base_week_dates) | set(khateb_weeks)))
-    system_distributed_set = set(scheduled_weeks)
-
-    assignments = Assignment.query.filter(
+    # التعيين القادم
+    upcoming = Assignment.query.filter(
         Assignment.khateb_id == khateb.id,
-        Assignment.week_date.in_(week_dates)
-    ).order_by(Assignment.week_date.asc(), Assignment.id.asc()).all()
+        Assignment.week_date >= today,
+        Assignment.status.in_(['confirmed', 'apologized'])
+    ).order_by(Assignment.week_date.asc()).first()
 
-    by_week = {}
-    for a in assignments:
-        by_week.setdefault(a.week_date, []).append(a)
+    # اختيار التوزيعة المعروضة للجمعة الكاملة (الافتراضي: أقرب جمعة قادمة موزعة، أو أحدث توزيعة)
+    week_param = request.args.get('week', '').strip()
+    selected_week_date = None
+    if week_param:
+        try:
+            selected_week_date = datetime.strptime(week_param, '%Y-%m-%d').date()
+        except ValueError:
+            selected_week_date = None
 
-    schedule = []
-    for wd in week_dates:
-        is_distributed_week = wd in system_distributed_set
-        schedule.append({
-            'week_date': wd,
-            'assignments': by_week.get(wd, []),
-            'is_rest': is_distributed_week and not by_week.get(wd),
-            'is_distributed': is_distributed_week
-        })
+    if selected_week_date is None:
+        nearest_sched = WeeklySchedule.query.filter(
+            WeeklySchedule.week_date >= today
+        ).order_by(WeeklySchedule.week_date.asc()).first()
+        if nearest_sched:
+            selected_week_date = nearest_sched.week_date
+        else:
+            latest_sched = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).first()
+            selected_week_date = latest_sched.week_date if latest_sched else engine.get_current_friday()
+
+    week_assignments, _, week_reserves, week_sched = get_week_schedule_data(selected_week_date)
+    _, schedule_items = get_schedule_summaries(selected_date=selected_week_date)
+
+    # إحصائيات الدورة الحالية
+    allowed_mosques = khateb.get_allowed_mosques()
+    total_allowed = len(allowed_mosques)
+    visited_in_cycle = khateb.get_visited_mosques_in_cycle()
+    visited_count = len(visited_in_cycle)
+    progress_pct = int((visited_count / total_allowed * 100)) if total_allowed > 0 else 0
+
+    all_mosques_dict = {m.id: m.name for m in Mosque.query.all()}
 
     return render_template(
         'my.html',
         khateb=khateb,
-        schedule=schedule,
-        total_mosques=total_mosques,
+        upcoming=upcoming,
+        selected_week_date=selected_week_date,
+        week_assignments=week_assignments,
+        week_reserves=week_reserves,
+        week_has_schedule=bool(week_assignments or week_sched),
+        schedule_items=schedule_items,
+        total_allowed=total_allowed,
         visited_count=visited_count,
-        needs_new_topic=needs_new_topic,
-        current_friday=current_friday,
-        seasonal_active=khateb.is_seasonal_active(),
-        seasonal_occasions=SEASONAL_OCCASIONS
+        progress_pct=progress_pct,
+        visited_in_cycle=visited_in_cycle,
+        all_mosques_dict=all_mosques_dict
     )
 
-
-@app.route('/my/assignment/<int:assignment_id>/apologize', methods=['POST'])
+@app.route('/my/apologize/<int:assignment_id>', methods=['POST'])
 @login_required
-def my_apologize_assignment(assignment_id):
-    """اعتذار الخطيب عن تعيين: cancelled + تعيين بديل مؤكد تلقائياً"""
+def my_apologize(assignment_id):
     khateb = current_khateb()
-    if not khateb:
-        logout_session()
-        return redirect(url_for('login'))
+    a = db.session.get(Assignment, assignment_id)
+    if not a or a.khateb_id != khateb.id:
+        flash('تعيين غير صالح', 'danger')
+        return redirect(url_for('my_portal'))
 
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment or assignment.khateb_id != khateb.id:
-        flash('التعيين غير موجود', 'error')
-        return redirect(url_for('my'))
+    success, msg, replacement = engine.apologize_and_reassign(assignment_id)
+    flash('تم تسجيل اعتذارك بنجاح وإشعار النظام للبحث عن بديل.', 'info')
+    return redirect(url_for('my_portal'))
 
-    if assignment.status == 'cancelled':
-        flash('هذا التعيين ملغى بالفعل', 'error')
-        return redirect(url_for('my'))
-
-    replacement_id, _attached_id = cancel_and_reassign(
-        assignment, update_visited=True, attach_original=False
-    )
-    db.session.commit()
-
-    if replacement_id:
-        replacement_a = Assignment.query.get(replacement_id)
-        rep_name = replacement_a.khateb.name if replacement_a and replacement_a.khateb else 'خطيب بديل'
-        flash(f'تم تسجيل اعتذارك نهائياً وتعيين ({rep_name}) كبديل مؤكد تلقائياً في المسجد.', 'success')
-    else:
-        flash('تم تسجيل اعتذارك نهائياً عن هذه الخطبة (لا يوجد خطيب بديل متاح حالياً).', 'warning')
-    return redirect(url_for('my'))
-
-
-@app.route('/my/assignment/<int:assignment_id>/undo_apologize', methods=['POST'])
+@app.route('/my/undo_apologize/<int:assignment_id>', methods=['POST'])
 @login_required
 def my_undo_apologize(assignment_id):
-    """تم إلغاء ميزة التراجع عن الاعتذار منعاً للتعارض مع الخطيب البديل والخلل"""
-    flash('لا يمكن التراجع عن الاعتذار بعد تأكيده، حيث تم تعيين خطيب بديل مؤكد للمسجد فوراً منعاً للتعارض.', 'error')
-    return redirect(url_for('my'))
+    khateb = current_khateb()
+    a = db.session.get(Assignment, assignment_id)
+    if not a or a.khateb_id != khateb.id:
+        flash('تعيين غير صالح', 'danger')
+        return redirect(url_for('my_portal'))
 
+    success, msg = engine.undo_apology(assignment_id)
+    flash(msg, 'success' if success else 'danger')
+    return redirect(url_for('my_portal'))
 
-@app.route('/my/seasonal', methods=['POST'])
+@app.route('/my/profile', methods=['GET', 'POST'])
 @login_required
-def my_set_seasonal_topic():
-    """تفعيل موضوع موسمي مؤقت (خطبة واحدة أو خطبتان) - يعلو على الموضوع الأساسي"""
+def my_profile():
     khateb = current_khateb()
     if not khateb:
-        logout_session()
+        flash('الرجاء الدخول بحساب الخطيب', 'warning')
         return redirect(url_for('login'))
 
-    topic = (request.form.get('topic', '') or '').strip()
-    if not topic:
-        flash('يرجى كتابة موضوع الخطبة الموسمي', 'error')
-        return redirect(url_for('my'))
+    friday_ctx = get_friday_selection_context()
+    if request.method == 'POST':
+        availability_mode = request.form.get('availability_mode', khateb.availability_mode)
+        khateb.availability_mode = availability_mode if availability_mode in ('always', 'alternate') else 'always'
 
-    first_friday, last_friday = seasonal_window(khateb, request.form.get('weeks', 1))
+        alternate_offset_raw = request.form.get('alternate_offset')
+        if alternate_offset_raw in ('0', '1'):
+            khateb.alternate_offset = int(alternate_offset_raw)
 
-    khateb.seasonal_topic = topic[:300]
-    khateb.seasonal_until = last_friday
-    db.session.add(khateb)
+        forbidden = [int(x) for x in request.form.getlist('forbidden_mosques') if x.isdigit()]
+        khateb.set_forbidden_mosques(forbidden)
 
-    # تطبيق الموضوع على التعيينات المستقبلية ضمن نافذة الموسم
-    updated = apply_seasonal_to_assignments(khateb, topic, first_friday, last_friday)
-    db.session.commit()
+        initial_visited = [int(x) for x in request.form.getlist('initial_visited_mosques') if x.isdigit()]
+        khateb.set_initial_visited_mosques(initial_visited)
 
-    msg = 'تم تفعيل الموضوع الموسمي: %s (حتى %s)' % (topic, last_friday.strftime('%Y-%m-%d'))
-    if updated:
-        msg += ' — تم تحديث %d تعيين قادم' % updated
-    flash(msg, 'success')
-    return redirect(url_for('my'))
+        khateb.set_unavailable_dates(parse_unavailable_dates_from_form(request.form))
 
+        new_pw = request.form.get('new_password', '').strip()
+        if new_pw:
+            khateb.set_password(new_pw)
 
-@app.route('/my/seasonal/cancel', methods=['POST'])
-@login_required
-def my_cancel_seasonal_topic():
-    """إلغاء الموضوع الموسمي والعودة للموضوع الأساسي"""
-    khateb = current_khateb()
-    if not khateb:
-        logout_session()
-        return redirect(url_for('login'))
-
-    khateb.seasonal_topic = None
-    khateb.seasonal_until = None
-    db.session.add(khateb)
-    db.session.commit()
-
-    flash('تم إلغاء الموضوع الموسمي، وعاد موضوعك الأساسي', 'success')
-    return redirect(url_for('my'))
-
-
-@app.route('/khateb/<int:khateb_id>/seasonal/cancel', methods=['POST'])
-@admin_required
-def khateb_cancel_seasonal_topic(khateb_id):
-    """إلغاء الموضوع الموسمي لخطيب (رقابة إدارية)"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        flash('الخطيب غير موجود', 'error')
-        return redirect(url_for('settings'))
-
-    khateb.seasonal_topic = None
-    khateb.seasonal_until = None
-    db.session.add(khateb)
-    db.session.commit()
-
-    flash('تم إلغاء الموضوع الموسمي للخطيب %s' % khateb.name, 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/my/topic', methods=['POST'])
-@login_required
-def my_submit_topic():
-    """تأكيد موضوع خطبة جديد من الخطيب (تطبيق مباشر بدون تدخل المدير)
-
-       - reset: يُفعَّل فوراً وتُصفَّر المساجد المزارة (بداية جديدة)
-       - after_current: يُجدول ويكون موضوع الخطبة القادمة، ويُفعَّل تلقائياً
-         بعد إنهاء الخطيب جميع المساجد
-    """
-    khateb = current_khateb()
-    if not khateb:
-        logout_session()
-        return redirect(url_for('login'))
-
-    topic = (request.form.get('topic', '') or '').strip()
-    if not topic:
-        flash('يرجى كتابة موضوع الخطبة الجديد', 'error')
-        return redirect(url_for('my'))
-
-    mode = request.form.get('mode', TOPIC_MODE_RESET)
-    if mode not in (TOPIC_MODE_RESET, TOPIC_MODE_AFTER_CURRENT):
-        mode = TOPIC_MODE_RESET
-
-    if mode == TOPIC_MODE_AFTER_CURRENT:
-        # موضوع الخطبة القادمة: يبقى الموضوع الحالي حتى تنتهي المساجد،
-        # ثم يُفعَّل تلقائياً
-        khateb.pending_topic = topic[:300]
-        khateb.pending_topic_mode = TOPIC_MODE_AFTER_CURRENT
-        khateb.pending_topic_approved = 1
-        db.session.add(khateb)
         db.session.commit()
-        flash('تم تأكيد موضوع الخطبة القادمة: %s — سيُطبَّق تلقائياً بعد إنهائك جميع المساجد' % topic, 'success')
-        return redirect(url_for('my'))
+        flash('تم حفظ إعدادات ملفك الشخصي وتفضيلاتك بنجاح', 'success')
+        return redirect(url_for('my_portal'))
 
-    # تطبيق مباشر: بداية جديدة بالموضوع الجديد على جميع المساجد
-    activate_new_topic(khateb, topic[:300])
-    db.session.commit()
-    flash('تم اعتماد موضوعك الجديد: %s — وأُعيد تعيينك على جميع المساجد' % topic, 'success')
-    return redirect(url_for('my'))
-
-
-@app.route('/my/topic/cancel', methods=['POST'])
-@login_required
-def my_cancel_pending_topic():
-    """إلغاء موضوع الخطبة القادمة المجدول"""
-    khateb = current_khateb()
-    if not khateb:
-        logout_session()
-        return redirect(url_for('login'))
-
-    khateb.pending_topic = None
-    khateb.pending_topic_mode = None
-    khateb.pending_topic_approved = 0
-    db.session.add(khateb)
-    db.session.commit()
-
-    flash('تم إلغاء موضوع الخطبة القادمة المجدول', 'success')
-    return redirect(url_for('my'))
+    mosques = Mosque.query.all()
+    system_visited_c1 = sorted(list(set(
+        a.mosque_id for a in khateb.assignments
+        if a.cycle_number == 1 and a.status in ('confirmed', 'completed')
+    )))
+    return render_template(
+        'my_profile.html',
+        khateb=khateb,
+        mosques=mosques,
+        system_visited_c1=system_visited_c1,
+        **friday_ctx
+    )
 
 
-# ============================================
-# مسارات المدير: حسابات الخطباء واعتماد المواضيع
-# ============================================
+# ====================================================
+# الإعدادات، النسخ الاحتياطي، والصيانة (Settings)
+# ====================================================
 
-@app.route('/khateb/<int:khateb_id>/allow', methods=['POST'])
+@app.route('/settings')
 @admin_required
-def khateb_allow(khateb_id):
-    """السماح للخطيب بالدخول بعد مراجعته في صفحة الإعدادات"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        flash('الخطيب غير موجود', 'error')
+def settings():
+    return render_template('settings.html')
+
+@app.route('/settings/backup/download')
+@admin_required
+def backup_download():
+    """تنزيل نسخة احتياطية فورية من قاعدة البيانات"""
+    db_file = os.path.join(INSTANCE_DIR, 'khutba_distribution.db')
+    if not os.path.exists(db_file):
+        flash('قاعدة البيانات غير موجودة بعد', 'danger')
         return redirect(url_for('settings'))
 
-    if khateb.is_active == 1:
-        flash('حساب الشيخ %s مفعّل بالفعل' % khateb.name, 'info')
+    backup_name = f"khutba_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    return send_file(db_file, as_attachment=True, download_name=backup_name)
+
+@app.route('/settings/backup/restore', methods=['POST'])
+@admin_required
+def backup_restore():
+    """استعادة قاعدة البيانات من ملف مرفوع"""
+    file = request.files.get('backup_file')
+    if not file or not file.filename.endswith('.db'):
+        flash('يرجى اختيار ملف قاعدة بيانات صالح بصيغة .db', 'danger')
         return redirect(url_for('settings'))
 
-    # لا يُسمح بالدخول قبل اكتمال بيانات الخطيب (موضوع الخطبة + المساجد + نظام التوفر)
-    if not khateb.has_profile():
-        flash('لا يمكن السماح للشيخ %s بالدخول قبل أن يكمل بياناته (موضوع الخطبة والمساجد ونظام التوفر).' % khateb.name, 'error')
-        return redirect(url_for('settings'))
+    db_file = os.path.join(INSTANCE_DIR, 'khutba_distribution.db')
+    # حفظ نسخة أمان قبل الاستعادة
+    safety_name = os.path.join(INSTANCE_DIR, f"pre_restore_safety_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+    if os.path.exists(db_file):
+        shutil.copy2(db_file, safety_name)
 
-    khateb.is_active = 1
-    db.session.add(khateb)
+    file.save(db_file)
+    flash('تمت استعادة قاعدة البيانات بنجاح', 'success')
+    return redirect(url_for('settings'))
+
+@app.route('/settings/admin/password', methods=['POST'])
+@admin_required
+def change_admin_password():
+    from werkzeug.security import generate_password_hash
+    new_pw = request.form.get('new_password', '').strip()
+    if new_pw:
+        AppSetting.set('admin_password_hash', generate_password_hash(new_pw))
+        flash('تم تغيير كلمة مرور المدير بنجاح', 'success')
+    return redirect(url_for('settings'))
+
+@app.route('/settings/reset/future', methods=['POST'])
+@admin_required
+def reset_future_distributions():
+    """حذف التوزيعات من اليوم فصاعداً"""
+    today = date.today()
+    deleted = Assignment.query.filter(Assignment.week_date >= today).delete()
+    WeeklySchedule.query.filter(WeeklySchedule.week_date >= today).delete()
+    db.session.commit()
+    flash(f'تم حذف {deleted} تعييناً مستقبلياً بنجاح', 'info')
+    return redirect(url_for('settings'))
+
+@app.route('/settings/reset/all', methods=['POST'])
+@admin_required
+def reset_entire_system():
+    """تصفير النظام بالكامل (حذف المساجد والخطباء والتوزيعات والجداول مع أخذ نسخة أمان)"""
+    db_file = os.path.join(INSTANCE_DIR, 'khutba_distribution.db')
+    if not app.config.get('TESTING') and os.path.exists(db_file):
+        safety_name = os.path.join(INSTANCE_DIR, f"pre_full_reset_safety_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        shutil.copy2(db_file, safety_name)
+
+    Assignment.query.delete()
+    WeeklySchedule.query.delete()
+    Khateb.query.delete()
+    Mosque.query.delete()
     db.session.commit()
 
-    flash('تم السماح للشيخ %s بالدخول. سيظهر تلقائياً في توزيع الجدول عند إنشاء التوزيع.' % khateb.name, 'success')
+    flash('تم تصفير النظام كله وحذف جميع المساجد والخطباء والتوزيعات بنجاح (مع حفظ نسخة أمان احتياطية)', 'warning')
     return redirect(url_for('settings'))
 
 
-@app.route('/khateb/<int:khateb_id>/set_password', methods=['POST'])
-@admin_required
-def khateb_set_password(khateb_id):
-    """تعيين كلمة مرور جديدة للخطيب (يختارها المدير)"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        flash('الخطيب غير موجود', 'error')
-        return redirect(url_for('settings'))
+# ====================================================
+# التهيئة والتشغيل
+# ====================================================
 
-    password = (request.form.get('password', '') or '').strip()
-    if len(password) < 6:
-        flash('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'error')
-        return redirect(url_for('settings'))
+def ensure_schema():
+    """ترحيل تلقائي لقاعدة البيانات لإضافة أي أعمدة ناقصة بسلاسة"""
+    import sqlite3
+    db_file = os.path.join(INSTANCE_DIR, 'khutba_distribution.db')
+    if not os.path.exists(db_file):
+        return
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
 
-    khateb.password_hash = generate_password_hash(password)
-    db.session.add(khateb)
-    db.session.commit()
+    needed = {
+        'mosque': [('notes', 'TEXT')],
+        'khateb': [
+            ('unavailable_dates', "TEXT DEFAULT '[]'"),
+            ('current_cycle', 'INTEGER DEFAULT 1'),
+            ('initial_visited_mosques', "TEXT DEFAULT '[]'")
+        ],
+        'assignment': [
+            ('cycle_number', 'INTEGER DEFAULT 1'),
+            ('replacement_for_id', 'INTEGER')
+        ],
+        'weekly_schedule': [
+            ('reserve_khateb_ids', "TEXT DEFAULT '[]'")
+        ]
+    }
 
-    flash('تم تعيين كلمة مرور جديدة للشيخ %s. أخبره بها ليتمكن من الدخول.' % khateb.name, 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/khateb/<int:khateb_id>/toggle_active', methods=['POST'])
-@admin_required
-def khateb_toggle_active(khateb_id):
-    """تفعيل / إيقاف دخول الخطيب"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        return jsonify({'success': False, 'message': 'الخطيب غير موجود'}), 404
-
-    khateb.is_active = 0 if khateb.is_active in (None, 1) else 1
-    db.session.add(khateb)
-    db.session.commit()
-
-    if khateb.is_active and not khateb.has_profile():
-        msg = 'تم تفعيل دخول الخطيب — لكن لم يكمل بياناته بعد، لن يظهر في التوزيع حتى يكملها.'
-    elif khateb.is_active:
-        msg = 'تم تفعيل دخول الخطيب'
-    else:
-        msg = 'تم إيقاف دخول الخطيب'
-
-    return jsonify({
-        'success': True,
-        'is_active': khateb.is_active,
-        'message': msg
-    })
+    for table, cols in needed.items():
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if not cursor.fetchone():
+            continue
+        cursor.execute(f"PRAGMA table_info({table})")
+        existing = [r[1] for r in cursor.fetchall()]
+        for col_name, col_type in cols:
+            if col_name not in existing:
+                try:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}")
+                except Exception:
+                    pass
+    conn.commit()
+    conn.close()
 
 
-@app.route('/assignment/<int:assignment_id>/complete', methods=['POST'])
-@admin_required
-def api_complete_assignment(assignment_id):
-    """تسجيل أداء الخطبة (من قبل المدير بعد انتهاء الجمعة): completed + إضافة المسجد للمساجد المزارة"""
-    assignment = Assignment.query.get(assignment_id)
-    if not assignment:
-        return jsonify({'success': False, 'message': 'التعيين غير موجود'}), 404
+def init_sample_data():
+    """إضافة بيانات أولية تجريبية إن كانت قاعدة البيانات فارغة"""
+    try:
+        if Mosque.query.count() == 0:
+            mosques_data = [
+                {"name": "جامع الهدى", "address": "حي السلام، شارع الملك فيصل", "capacity": 500},
+                {"name": "جامع النور", "address": "حي النزهة، طريق مكة", "capacity": 400},
+                {"name": "مسجد التقوى", "address": "حي الروضة، شارع الأندلس", "capacity": 300},
+                {"name": "جامع الفرقان", "address": "حي العزيزية، شارع التحلية", "capacity": 600},
+                {"name": "مسجد الفلاح", "address": "حي المروة، شارع الأمير سلطان", "capacity": 250},
+                {"name": "جامع الإحسان", "address": "حي الصفا، طريق المدينة", "capacity": 450},
+            ]
+            for md in mosques_data:
+                db.session.add(Mosque(**md))
 
-    if assignment.status == 'cancelled':
-        return jsonify({'success': False, 'message': 'هذا التعيين ملغى'}), 400
+        if Khateb.query.count() == 0:
+            khatebs_data = [
+                {"name": "الشيخ أحمد بن محمد الشريف", "phone": "0501111111", "pw": "123456"},
+                {"name": "الشيخ عبد الله بن سعد الغامدي", "phone": "0502222222", "pw": "123456"},
+                {"name": "الشيخ فهد بن صالح القرني", "phone": "0503333333", "pw": "123456"},
+                {"name": "الشيخ عمر بن عبد الرحمن الدوسري", "phone": "0504444444", "pw": "123456"},
+                {"name": "الشيخ خالد بن علي القحطاني", "phone": "0505555555", "pw": "123456"},
+                {"name": "الشيخ إبراهيم بن يوسف العتيبي", "phone": "0506666666", "pw": "123456"},
+                {"name": "الشيخ منصور بن حمد الحربي", "phone": "0507777777", "pw": "123456"},
+                {"name": "الشيخ سلطان بن ناصر الشهري", "phone": "0508888888", "pw": "123456"},
+            ]
+            for kd in khatebs_data:
+                k = Khateb(name=kd['name'], phone=kd['phone'], is_active=1, availability_mode='always')
+                k.set_password(kd['pw'])
+                db.session.add(k)
 
-    assignment.status = 'completed'
-    db.session.add(assignment)
-
-    khateb = Khateb.query.get(assignment.khateb_id)
-    message = 'تم تسجيل أداء الخطبة'
-    if khateb:
-        visited = khateb.get_visited_mosques_list()
-        if assignment.mosque_id not in visited:
-            visited.append(assignment.mosque_id)
-            khateb.mosques_visited = json.dumps(visited)
-            db.session.add(khateb)
-
-    db.session.commit()
-
-    # تفعيل الموضوع المجدول تلقائياً إذا أنهى الخطيب جميع المساجد
-    if khateb and maybe_activate_queued_topic(khateb):
-        message += ' — وتم تفعيل موضوعك الجديد: %s' % khateb.current_topic
-
-    return jsonify({'success': True, 'message': message})
-
-
-@app.route('/khateb/<int:khateb_id>/approve_topic', methods=['POST'])
-@admin_required
-def khateb_approve_topic(khateb_id):
-    """اعتماد الموضوع الجديد المقترح من الخطيب
-
-    - وضع 'reset': يُفعَّل فوراً وتُصفّر المساجد المزارة
-    - وضع 'after_current': يُجدول للتفعيل تلقائياً بعد إنهاء الخطيب جميع المساجد
-    """
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        flash('الخطيب غير موجود', 'error')
-        return redirect(url_for('settings'))
-
-    if not khateb.pending_topic:
-        flash('لا يوجد موضوع مقترح لهذا الخطيب', 'error')
-        return redirect(url_for('settings'))
-
-    topic = khateb.pending_topic
-    mode = khateb.pending_topic_mode or TOPIC_MODE_RESET
-
-    if mode == TOPIC_MODE_AFTER_CURRENT:
-        # يُجدول: يبقى الموضوع الحالي حتى ينتهي الخطيب من المساجد
-        khateb.pending_topic_approved = 1
-        db.session.add(khateb)
         db.session.commit()
-        flash('تم اعتماد موضوع %s كموضوع قادم للخطيب %s — سيُفعَّل تلقائياً بعد إنهاء جميع المساجد'
-              % (topic, khateb.name), 'success')
-        return redirect(url_for('settings'))
-
-    activate_new_topic(khateb, topic)
-    db.session.commit()
-    flash('تم اعتماد الموضوع الجديد لـ %s وتصفير قائمة المساجد المزارة' % khateb.name, 'success')
-    return redirect(url_for('settings'))
+    except Exception:
+        pass
 
 
-@app.route('/khateb/<int:khateb_id>/activate_topic', methods=['POST'])
-@admin_required
-def khateb_activate_topic(khateb_id):
-    """تفعيل موضوع الخطيب فوراً (بدون انتظار إنهاء المساجد)"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        flash('الخطيب غير موجود', 'error')
-        return redirect(url_for('settings'))
-
-    if not khateb.pending_topic:
-        flash('لا يوجد موضوع مقترح لهذا الخطيب', 'error')
-        return redirect(url_for('settings'))
-
-    topic = khateb.pending_topic
-    activate_new_topic(khateb, topic)
-    db.session.commit()
-    flash('تم تفعيل الموضوع %s للخطيب %s وتصفير المساجد المزارة' % (topic, khateb.name), 'success')
-    return redirect(url_for('settings'))
-
-
-@app.route('/khateb/<int:khateb_id>/reject_topic', methods=['POST'])
-@admin_required
-def khateb_reject_topic(khateb_id):
-    """رفض Topic المقترح وإلغاؤه"""
-    khateb = Khateb.query.get(khateb_id)
-    if not khateb:
-        flash('الخطيب غير موجود', 'error')
-        return redirect(url_for('settings'))
-
-    khateb.pending_topic = None
-    khateb.pending_topic_mode = None
-    khateb.pending_topic_approved = 0
-    db.session.add(khateb)
-    db.session.commit()
-    flash('تم إلغاء الموضوع المقترح للخطيب %s' % khateb.name, 'success')
-    return redirect(url_for('settings'))
+ensure_schema()
+with app.app_context():
+    db.create_all()
+    if not app.config.get('TESTING'):
+        init_sample_data()
 
 
 if __name__ == '__main__':
-    # Ensure required folders and the database exist when running directly.
-    # Flask 2.3 removed `before_first_request`; initialize here under app context.
-    warn_dev_defaults()
-    with app.app_context():
-        # ترحيل بسيط وقابل للتكرار (إضافة أعمدة ناقصة فقط)
-        from migrate import run_migrations
-        run_migrations()
-        create_directories()
-
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5000)

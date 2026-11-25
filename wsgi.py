@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-نقطة دخول WSGI — تُستخدم على PythonAnywhere (الملف: /home/khateebs/mosqi/wsgi.py)
+نقطة دخول WSGI — تُستخدم على PythonAnywhere (الملف: /home/khateebs/mosqiyUN/wsgi.py)
 أو محلياً مع Gunicorn:
 
     gunicorn -w 2 -b 0.0.0.0:5000 wsgi:app
@@ -9,7 +9,7 @@
 ملاحظات مهمة:
 - يقرأ متغيرات البيئة من ملف .env المجاور قبل استيراد التطبيق،
   لأن SECRET_KEY و ADMIN_PASSWORD تُقرأ عند وقت الاستيراد.
-- ينفّذ الترحيل (idempotent) ويهيّئ مجلد instance في كل إقلاع.
+- ينفّذ تهيئة الجداول والأعمدة ويهيّئ مجلد instance في كل إقلاع.
 """
 
 import os
@@ -41,14 +41,12 @@ def _load_env_file(path):
 
 _load_env_file(os.path.join(PROJECT_DIR, '.env'))
 
-from app import app, db, create_directories, warn_dev_defaults
-from migrate import run_migrations
+from app import app, db, ensure_schema, INSTANCE_DIR
 
-warn_dev_defaults()
-
+os.makedirs(INSTANCE_DIR, exist_ok=True)
+ensure_schema()
 with app.app_context():
-    run_migrations()
-    create_directories()
+    db.create_all()
 
 # PythonAnywhere يتوقع المتغير باسم 'application' أو 'app'
 application = app

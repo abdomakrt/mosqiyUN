@@ -1,108 +1,104 @@
 {% extends "base.html" %}
 
-{% block title %}الإعدادات - نظام توزيع الخطباء{% endblock %}
+{% block title %}الإعدادات والصيانة والنسخ الاحتياطي{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1><i class="fas fa-cog"></i> الإعدادات</h1>
-        </div>
+<div class="row align-items-center mb-4">
+    <div class="col-md-6">
+        <h3 class="fw-bold text-dark mb-1">
+            <i class="fa-solid fa-sliders text-success me-2"></i> الإعدادات والصيانة
+        </h3>
+        <p class="text-muted small mb-0">إدارة أمان النظام، النسخ الاحتياطي لقاعدة البيانات، وخيارات إعادة التعيين</p>
     </div>
 </div>
 
-<!-- إحصائيات سريعة -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <i class="fas fa-building fa-2x text-primary mb-2"></i>
-                <h4>{{ mosques|length }}</h4>
-                <p class="text-muted">المساجد</p>
+<div class="row g-4">
+    <!-- بطاقة النسخ الاحتياطي والاستعادة -->
+    <div class="col-lg-6">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-header bg-white py-3 border-0">
+                <h5 class="fw-bold mb-0 text-primary">
+                    <i class="fa-solid fa-database me-2"></i> النسخ الاحتياطي لقاعدة البيانات
+                </h5>
+                <small class="text-muted">حفظ نسخة احتياطية من بيانات المساجد والخطباء والتوزيعات أو استعادتها</small>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <i class="fas fa-users fa-2x text-success mb-2"></i>
-                <h4>{{ khutbas|length }}</h4>
-                <p class="text-muted">الخطباء</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <i class="fas fa-calendar-check fa-2x text-info mb-2"></i>
-                <h4>{{ assignments|length }}</h4>
-                <p class="text-muted">التعيينات</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <i class="fas fa-table fa-2x text-warning mb-2"></i>
-                <h4>{{ schedules|length }}</h4>
-                <p class="text-muted">جداول أسبوعية</p>
-            </div>
-        </div>
-    </div>
-</div>
+            <div class="card-body p-4 pt-1">
+                <!-- تنزيل نسخة فورية -->
+                <div class="p-3 bg-light rounded-3 mb-4 border">
+                    <h6 class="fw-bold mb-1 text-dark">تنزيل نسخة احتياطية فورية</h6>
+                    <p class="text-muted small mb-3">حفظ ملف قاعدة البيانات <code>.db</code> على جهازك الشخصي للرجوع إليه في أي وقت.</p>
+                    <a href="{{ url_for('backup_download') }}" class="btn btn-primary btn-sm px-3">
+                        <i class="fa-solid fa-download me-1"></i> تنزيل ملف النسخة الاحتياطية (.db)
+                    </a>
+                </div>
 
-<!-- كلمة مرور المدير -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-user-shield"></i> كلمة مرور المدير</h5>
-            </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('settings_change_admin_password') }}"
-                      onsubmit="return confirm('هل تريد تغيير كلمة مرور المدير؟');">
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label" for="currentPass">كلمة المرور الحالية</label>
-                            <input type="password" class="form-control" id="currentPass" name="current_password"
-                                   placeholder="للتأكد فقط" autocomplete="current-password">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label" for="newPass">كلمة المرور الجديدة</label>
-                            <input type="password" class="form-control" id="newPass" name="new_password" minlength="6"
-                                   placeholder="6 أحرف على الأقل" autocomplete="new-password">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label" for="confirmPass">تأكيد كلمة المرور</label>
-                            <input type="password" class="form-control" id="confirmPass" name="confirm_password" minlength="6"
-                                   placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
-                        </div>
-                        <div class="col-md-3">
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="fas fa-key"></i> تغيير كلمة المرور
+                <!-- استعادة نسخة -->
+                <div class="p-3 bg-light rounded-3 border">
+                    <h6 class="fw-bold mb-1 text-dark">استعادة قاعدة البيانات من ملف</h6>
+                    <p class="text-muted small mb-2">اختر ملف <code>.db</code> محفوظ سابقاً لرفعه واستعادة البيانات (يتم أخذ نسخة أمان تلقائياً قبل الاستعادة).</p>
+                    <form method="POST" action="{{ url_for('backup_restore') }}" enctype="multipart/form-data" onsubmit="return confirm('تحذير: سيتم استبدال قاعدة البيانات الحالية بالملف المرفوع. هل تريد المتابعة؟');">
+                        <div class="input-group mb-2">
+                            <input type="file" name="backup_file" class="form-control form-control-sm" accept=".db" required>
+                            <button type="submit" class="btn btn-warning btn-sm">
+                                <i class="fa-solid fa-upload me-1"></i> استعادة
                             </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- بطاقة أمان الإدارة والتصفير -->
+    <div class="col-lg-6">
+        <!-- تغيير كلمة مرور المدير -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white py-3 border-0">
+                <h5 class="fw-bold mb-0 text-dark">
+                    <i class="fa-solid fa-key text-warning me-2"></i> تغيير كلمة مرور المدير
+                </h5>
+            </div>
+            <div class="card-body p-4 pt-1">
+                <form method="POST" action="{{ url_for('change_admin_password') }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">كلمة المرور الجديدة للمدير</label>
+                        <div class="input-group">
+                            <input type="password" name="new_password" class="form-control" placeholder="أدخل كلمة مرور قوية" required>
+                            <button type="submit" class="btn btn-dark">تحديث</button>
                         </div>
                     </div>
                 </form>
+            </div>
+        </div>
 
-                <hr class="my-3">
-                <div class="d-flex justify-content-between align-items-center flex-wrap">
-                    <small class="text-muted">
-                        {% if admin_password_source == 'database' %}
-                            <i class="fas fa-circle text-success"></i>
-                            كلمة المرور الحالية مُعدَّلة ومحفوظة مشفّرة في قاعدة البيانات.
-                        {% else %}
-                            <i class="fas fa-circle text-warning"></i>
-                            كلمة المرور الحالية هي القيمة الافتراضية من متغير البيئة
-                            <code>ADMIN_PASSWORD</code> — يُنصح بتغييرها.
-                        {% endif %}
-                    </small>
-                    <form method="POST" action="{{ url_for('settings_reset_admin_password') }}"
-                          onsubmit="return confirm('الرجوع إلى كلمة المرور الأساسية (ADMIN_PASSWORD)؟');">
-                        <input type="password" class="form-control form-control-sm d-inline-block"
-                               style="width: 180px" name="current_password" placeholder="كلمة المرور الحالية">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary">
-                            <i class="fas fa-undo"></i> إعادة للكلمة الأساسية
+        <!-- أدوات تصفير التوزيع والدورات -->
+        <div class="card shadow-sm border-0 border-danger border-start border-4">
+            <div class="card-header bg-white py-3 border-0">
+                <h5 class="fw-bold mb-0 text-danger">
+                    <i class="fa-solid fa-triangle-exclamation me-2"></i> إجراءات إعادة الضبط (التصفير)
+                </h5>
+            </div>
+            <div class="card-body p-4 pt-1">
+                <!-- تصفير التوزيعات المستقبلية -->
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <div>
+                        <div class="fw-bold text-dark">حذف التوزيعات المستقبلية</div>
+                        <small class="text-muted">مسح التعيينات من تاريخ اليوم فصاعداً لإعادة توزيعها من جديد</small>
+                    </div>
+                    <form method="POST" action="{{ url_for('reset_future_distributions') }}" onsubmit="return confirm('تأكيد حذف التعيينات المستقبلية؟');">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">مسح المستقبلية</button>
+                    </form>
+                </div>
+
+                <!-- تصفير النظام كله -->
+                <div class="d-flex justify-content-between align-items-center py-3">
+                    <div>
+                        <div class="fw-bold text-danger">تصفير النظام كله</div>
+                        <small class="text-muted">حذف جميع المساجد والخطباء والتوزيعات والجداول بالكامل للبدء من الصفر (مع حفظ نسخة أمان تلقائياً)</small>
+                    </div>
+                    <form method="POST" action="{{ url_for('reset_entire_system') }}" onsubmit="return confirm('تحذير نهائي: سيتم حذف جميع المساجد والخطباء والتوزيعات بالكامل! هل أنت متأكد من تصفير النظام كله؟');">
+                        <button type="submit" class="btn btn-danger btn-sm text-nowrap">
+                            <i class="fa-solid fa-trash-can me-1"></i> تصفير النظام كله
                         </button>
                     </form>
                 </div>
@@ -110,742 +106,4 @@
         </div>
     </div>
 </div>
-
-<!-- النسخ الاحتياطي والاستعادة -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-database"></i> النسخ الاحتياطي والاستعادة</h5>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <div class="d-grid">
-                            <a href="{{ url_for('settings_backup_download') }}" class="btn btn-primary">
-                                <i class="fas fa-download"></i> تنزيل نسخة احتياطية الآن
-                            </a>
-                            <small class="text-muted mt-2">
-                                ملف <code>.db</code> يحتوي كل البيانات (مساجد، خطباء، تعيينات، جداول أسبوعية).
-                                احفظه في مكان آمن قبل أي عملية تصفير.
-                            </small>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <form method="POST" action="{{ url_for('settings_backup_restore') }}"
-                              enctype="multipart/form-data"
-                              onsubmit="return confirm('سيتم استبدال قاعدة البيانات الحالية بالكامل. هل أنت متأكد؟');">
-                            <label class="form-label"><i class="fas fa-upload"></i> استعادة من ملف</label>
-                            <div class="input-group">
-                                <input type="file" class="form-control" name="backup_file" accept=".db" required>
-                                <button type="submit" class="btn btn-warning"><i class="fas fa-rotate"></i> استعادة</button>
-                            </div>
-                            <small class="text-muted mt-2 d-block">
-                                تُحفظ نسخة أمان من الوضع الحالي تلقائياً قبل الاستعادة.
-                            </small>
-                        </form>
-                    </div>
-                </div>
-
-                <hr class="my-4">
-
-                <h6 class="mb-3"><i class="fas fa-server"></i> نسخ احتياطية محفوظة على الخادم</h6>
-                <small class="text-muted d-block mb-2">
-                    يُحتفظ على الخادم بآخر نسختين فقط (تُحذف الأقدم تلقائياً) — نزّل نسخة إلى جهازك للاحتفاظ بها.
-                </small>
-                {% if backups %}
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>اسم الملف</th>
-                                <th>التاريخ</th>
-                                <th>الحجم</th>
-                                <th>إجراءات</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for b in backups %}
-                            <tr>
-                                <td><code>{{ b.name }}</code></td>
-                                <td>{{ b.mtime }}</td>
-                                <td>{{ b.size_kb }} KB</td>
-                                <td>
-                                    <a href="{{ url_for('settings_backup_download_local', name=b.name) }}"
-                                       class="btn btn-sm btn-outline-primary">
-                                        <i class="fas fa-download"></i> تنزيل
-                                    </a>
-                                    <form method="POST" action="{{ url_for('settings_backup_restore_local', name=b.name) }}"
-                                          style="display:inline"
-                                          onsubmit="return confirm('سيتم استبدال قاعدة البيانات الحالية بالكامل. هل أنت متأكد؟');">
-                                        <button type="submit" class="btn btn-sm btn-outline-warning">
-                                            <i class="fas fa-rotate"></i> استعادة
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-muted mb-0">
-                    <i class="fas fa-info-circle"></i>
-                    لا توجد نسخ احتياطية محفوظة بعد. تُنشأ نسخة أمان تلقائياً قبل أي عملية تصفير.
-                </p>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- تصفير النظام -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card border-danger">
-            <div class="card-header bg-danger text-white">
-                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> تصفير النظام</h5>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-info py-2">
-                    <i class="fas fa-shield-alt"></i>
-                    قبل تنفيذ أي عملية تصفير يتم حفظ نسخة أمان تلقائياً في الخادم يمكنك استعادتها لاحقاً.
-                </div>
-                <div class="row">
-                    <div class="col-md-6 mb-2">
-                        <form method="POST" action="{{ url_for('settings_reset_distributions') }}" onsubmit="return confirm('هل أنت متأكد من تصفير جميع التعيينات والجداول الأسبوعية؟');">
-                            <button type="submit" class="btn btn-outline-danger w-100"><i class="fas fa-calendar-times"></i> تصفير التوزيعات فقط</button>
-                        </form>
-                    </div>
-                    <div class="col-md-6 mb-2">
-                        <form method="POST" action="{{ url_for('settings_reset_khatibs_progress') }}" onsubmit="return confirm('هل أنت متأكد من إعادة تعيين تقدم جميع الخطباء (مسح قائمة المساجد المزارة)؟');">
-                            <button type="submit" class="btn btn-outline-warning w-100"><i class="fas fa-redo"></i> تصفير تقدم الخطباء</button>
-                        </form>
-                    </div>
-                    <div class="col-md-6 mb-2">
-                        <form method="POST" action="{{ url_for('settings_reset_all') }}" onsubmit="return confirm('هل أنت متأكد من تصفير النظام بالكامل مع الاحتفاظ بالمساجد والخطباء؟');">
-                            <button type="submit" class="btn btn-outline-danger w-100"><i class="fas fa-broom"></i> تصفير كامل (احتفاظ بالمساجد والخطباء)</button>
-                        </form>
-                    </div>
-                    <div class="col-md-6 mb-2">
-                        <form method="POST" action="{{ url_for('settings_reset_everything') }}" onsubmit="return confirm('تحذير شديد: سيتم حذف جميع المساجد والخطباء والتعيينات نهائياً (سيتم حفظ نسخة أمان تلقائياً قبل الحذف). هل أنت متأكد؟');">
-                            <button type="submit" class="btn btn-danger w-100"><i class="fas fa-trash-alt"></i> حذف كل شيء</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- حالة الخطباء والتنبيهات -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-bell"></i> حالة الخطباء وتنبيهات تغيير الموضوع</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>الخطيب</th>
-                                <th>الموضوع الحالي</th>
-                                <th>المساجد المزارة</th>
-                                <th>التقدم</th>
-                                <th>الحالة</th>
-                                <th>إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for khateb in khutbas %}
-                            <tr>
-                                <td><strong>{{ khateb.name }}</strong></td>
-                                <td>{{ khateb.current_topic }}</td>
-                                <td>{{ khateb._visited_count }} / {{ mosques|length }}</td>
-                                <td>
-                                    <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar {% if khateb._progress >= 100 %}bg-danger{% else %}bg-success{% endif %}" style="width: {{ khateb._progress }}%">{{ khateb._progress }}%</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    {% if khateb._progress >= 100 %}
-                                    <span class="badge bg-danger"><i class="fas fa-exclamation-circle"></i> يحتاج تحضير خطبة جديدة</span>
-                                    {% else %}
-                                    <span class="badge bg-success">مستمر بنفس الموضوع</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-info" onclick="showKhatebSchedule({{ khateb.id }}, '{{ khateb.name }}')"><i class="fas fa-calendar-week"></i> عرض جدول ٤ أسابيع</button>
-                                    <a href="{{ url_for('khutbas') }}" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i> تغيير الموضوع</a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- خطباء يحتاجون موضوعاً جديداً -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-comment-dots"></i> خطباء يحتاجون موضوعاً جديداً</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>الخطيب</th>
-                                <th>الجوال</th>
-                                <th>الموضوع الحالي</th>
-                                <th>الزيارات</th>
-                                <th>إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% set need_list = khutbas | selectattr('_need_new_topic') | rejectattr('pending_topic') | list %}
-                            {% for khateb in need_list %}
-                            <tr class="table-warning">
-                                <td><strong>{{ khateb.name }}</strong></td>
-                                <td>{{ khateb.phone or 'غير محدد' }}</td>
-                                <td>{{ khateb.current_topic }}
-                                    {% if khateb.is_seasonal_active() %}
-                                        <span class="badge bg-info">موضوع موسمي: {{ khateb.seasonal_topic }}</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ khateb._visited_count }} / {{ total_mosques }}</td>
-                                <td>
-                                    {% if khateb._wa_link %}
-                                    <a href="{{ khateb._wa_link }}" target="_blank" rel="noopener" class="btn btn-sm btn-success">
-                                        <i class="fab fa-whatsapp"></i> إرسال طلب موضوع جديد
-                                    </a>
-                                    {% else %}
-                                    <span class="text-muted">لا يوجد رقم جوال</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% else %}
-                            <tr>
-                                <td colspan="5" class="text-center text-muted py-4">
-                                    <i class="fas fa-check-circle fa-2x mb-2 d-block text-success"></i>
-                                    لا يوجد خطباء بحاجة إلى موضوع جديد حالياً
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- المواضيع الموسمية السارية -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-star"></i> المواضيع الموسمية السارية</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>الخطيب</th>
-                                <th>الموضوع الأساسي</th>
-                                <th>الموضوع الموسمي</th>
-                                <th>ساري حتى</th>
-                                <th>إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% set seasonal_list = seasonal_khutbas %}
-                            {% for khateb in seasonal_list %}
-                            <tr class="table-info">
-                                <td><strong>{{ khateb.name }}</strong></td>
-                                <td>{{ khateb.current_topic }}</td>
-                                <td><strong>{{ khateb.seasonal_topic }}</strong></td>
-                                <td>{{ khateb.seasonal_until.strftime('%Y-%m-%d') }}</td>
-                                <td>
-                                    <form method="POST" action="{{ url_for('khateb_cancel_seasonal_topic', khateb_id=khateb.id) }}"
-                                          style="display:inline"
-                                          onsubmit="return confirm('إلغاء الموضوع الموسمي لهذا الخطيب؟');">
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                            <i class="fas fa-times"></i> إلغاء الآن
-                                        </button>
-                                    </form>
-                                </td>
-                            </tr>
-                            {% else %}
-                            <tr>
-                                <td colspan="5" class="text-center text-muted py-4">
-                                    <i class="fas fa-star fa-2x mb-2 d-block"></i>
-                                    لا توجد مواضيع موسمية سارية حالياً
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- مواضيع الخطبة القادمة المجدولة -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-inbox"></i> مواضيع الخطبة القادمة المجدولة</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>الخطيب</th>
-                                <th>الموضوع الحالي</th>
-                                <th>الموضوع المقترح</th>
-                                <th>الحالة</th>
-                                <th>إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% set pending_list = khutbas | selectattr('pending_topic') | list %}
-                            {% for khateb in pending_list %}
-                            <tr>
-                                <td><strong>{{ khateb.name }}</strong></td>
-                                <td>{{ khateb.current_topic }}</td>
-                                <td><strong class="text-success">{{ khateb.pending_topic }}</strong></td>
-                                <td>
-                                    <span class="badge bg-info">موضوع الخطبة القادمة</span>
-                                    <span class="badge bg-success">مجدول</span>
-                                </td>
-                                <td>
-                                    <form method="POST" action="{{ url_for('khateb_activate_topic', khateb_id=khateb.id) }}"
-                                          style="display:inline"
-                                          onsubmit="return confirm('تفعيل الموضوع الآن وتصفير المساجد المزارة؟');">
-                                        <button type="submit" class="btn btn-sm btn-success">
-                                            <i class="fas fa-bolt"></i> تفعيل الآن
-                                        </button>
-                                    </form>
-                                    <form method="POST" action="{{ url_for('khateb_reject_topic', khateb_id=khateb.id) }}"
-                                          style="display:inline"
-                                          onsubmit="return confirm('إلغاء الموضوع المجدول؟');">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                                            <i class="fas fa-times"></i> إلغاء
-                                        </button>
-                                    </form>
-                                    {% if khateb._wa_link %}
-                                    <a href="{{ khateb._wa_link }}" target="_blank" rel="noopener" class="btn btn-sm btn-success">
-                                        <i class="fab fa-whatsapp"></i> واتساب
-                                    </a>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% else %}
-                            <tr>
-                                <td colspan="5" class="text-center text-muted py-4">
-                                    <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
-                                    لا توجد مواضيع خطبة القادمة مجدولة
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- حسابات الخطباء -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-user-shield"></i> حسابات الخطباء والسماح بالدخول</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>الخطيب</th>
-                                <th>رقم الجوال</th>
-                                <th>كلمة المرور</th>
-                                <th>الملف</th>
-                                <th>حالة الحساب</th>
-                                <th>إجراءات</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for khateb in khutbas %}
-                            <tr class="{% if khateb.is_active in (None, 0) %}table-warning{% endif %}">
-                                <td><strong>{{ khateb.name }}</strong></td>
-                                <td>{{ khateb.phone or 'غير محدد' }}</td>
-                                <td>
-                                    {% if khateb._has_password %}
-                                        <span class="badge bg-success">معيّنة</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">غير معيّنة</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if khateb.profile_complete %}
-                                        <span class="badge bg-success">مكتمل</span>
-                                    {% else %}
-                                        <span class="badge bg-warning">ناقص — بانتظار الخطيب</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if khateb.is_active in (None, 0) %}
-                                        <span class="badge bg-warning">بانتظار موافقة المدير</span>
-                                    {% else %}
-                                        <span class="badge bg-success">مفعّل</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if khateb.is_active in (None, 0) %}
-                                    <form method="POST" action="{{ url_for('khateb_allow', khateb_id=khateb.id) }}"
-                                          style="display:inline"
-                                          onsubmit="return confirm('السماح للشيخ {{ khateb.name }} بالدخول؟');">
-                                        <button type="submit" class="btn btn-sm btn-success"
-                                                {% if not khateb.profile_complete %}disabled title="لم يكمل الخطيب بياناته بعد"{% endif %}>
-                                            <i class="fas fa-check"></i> السماح بالدخول
-                                        </button>
-                                    </form>
-                                    {% endif %}
-                                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleActive({{ khateb.id }})">
-                                        <i class="fas fa-power-off"></i> تفعيل/إيقاف
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-primary" type="button"
-                                            onclick="setPassword({{ khateb.id }}, '{{ khateb.name }}')">
-                                        <i class="fas fa-key"></i> تعيين كلمة مرور
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ظروف الخطباء الخاصة -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-sliders-h"></i> ظروف الخطباء الخاصة</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>الخطيب</th>
-                                <th>نظام التوفر</th>
-                                <th>المساجد المستثناة</th>
-                                <th>إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for khateb in khutbas %}
-                            <tr>
-                                <td><strong>{{ khateb.name }}</strong></td>
-                                <td>
-                                    <select class="form-select form-select-sm" id="spec_mode_{{ khateb.id }}">
-                                        <option value="always" {% if khateb.availability_mode != 'alternate' %}selected{% endif %}>متاح دائماً</option>
-                                        <option value="alternate" {% if khateb.availability_mode == 'alternate' %}selected{% endif %}>متاح أسبوع ويغيب الأسبوع التالي</option>
-                                    </select>
-                                    <input type="number" class="form-control form-control-sm mt-1" id="spec_off_{{ khateb.id }}" value="{{ khateb.alternate_offset or 0 }}" min="0" placeholder="إزاحة">
-                                </td>
-                                <td>
-                                    <select class="form-select form-select-sm" id="spec_forbidden_{{ khateb.id }}" multiple size="3">
-                                        {% for m in mosques %}
-                                        <option value="{{ m.id }}" {% if m.id in khateb._forbidden %}selected{% endif %}>{{ m.name }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </td>
-                                <td><button class="btn btn-sm btn-primary" onclick="saveKhatebSpecial({{ khateb.id }})"><i class="fas fa-save"></i> حفظ</button></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- إدارة التعيينات -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-list-alt"></i> إدارة التعيينات والتوزيعات (تعديل مباشر)</h5>
-                <div class="d-flex gap-2">
-                    <select id="weekFilter" class="form-select form-select-sm" style="width: auto;" onchange="filterByWeek()">
-                        <option value="all">جميع الأسابيع</option>
-                        {% for wd in week_dates %}
-                        <option value="{{ wd }}">{{ wd }}</option>
-                        {% endfor %}
-                    </select>
-                    <select id="weekActionSelect" class="form-select form-select-sm" style="width: auto;">
-                        <option value="">إجراء على الأسبوع المحدد...</option>
-                        {% for wd in week_dates %}
-                        <option value="{{ wd }}">{{ wd }}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn btn-sm btn-warning" onclick="reassignSelectedWeek()"><i class="fas fa-sync"></i> إعادة توزيع الأسبوع</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteSelectedWeek()"><i class="fas fa-trash"></i> حذف الأسبوع بالكامل</button>
-                </div>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0" id="assignmentsTable">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>الأسبوع (جمعة)</th>
-                                <th>الخطيب</th>
-                                <th>المسجد</th>
-                                <th>موضوع الخطبة</th>
-                                <th>الحالة</th>
-                                <th>إجراء</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for assignment in assignments %}
-                            <tr data-week="{{ assignment.week_date }}">
-                                <td>{{ assignment.id }}</td>
-                                <td>{{ assignment.week_date }}</td>
-                                <td>
-                                    <select class="form-select form-select-sm" id="khateb_{{ assignment.id }}">
-                                        {% for k in khutbas %}
-                                        <option value="{{ k.id }}" {% if k.id == assignment.khateb_id %}selected{% endif %}>{{ k.name }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </td>
-                                <td>
-                                    <select class="form-select form-select-sm" id="mosque_{{ assignment.id }}">
-                                        {% for m in mosques %}
-                                        <option value="{{ m.id }}" {% if m.id == assignment.mosque_id %}selected{% endif %}>{{ m.name }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </td>
-                                <td><input type="text" class="form-control form-control-sm" id="topic_{{ assignment.id }}" value="{{ assignment.khutba_topic }}"></td>
-                                <td>
-                                    <select class="form-select form-select-sm" id="status_{{ assignment.id }}">
-                                        <option value="pending" {% if assignment.status == 'pending' %}selected{% endif %}>قيد التأكيد</option>
-                                        <option value="confirmed" {% if assignment.status == 'confirmed' %}selected{% endif %}>مؤكد</option>
-                                        <option value="completed" {% if assignment.status == 'completed' %}selected{% endif %}>مكتمل</option>
-                                        <option value="cancelled" {% if assignment.status == 'cancelled' %}selected{% endif %}>ملغى</option>
-                                    </select>
-                                </td>
-                                <td><button class="btn btn-sm btn-primary" onclick="saveAssignment({{ assignment.id }})"><i class="fas fa-save"></i> حفظ</button></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal تعيين كلمة مرور خطيب -->
-<div class="modal fade" id="setPasswordModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fas fa-key"></i> تعيين كلمة مرور -
-                    <span id="setPasswordName"></span>
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form method="POST" id="setPasswordForm" novalidate>
-                <div class="modal-body">
-                    <input type="hidden" name="khateb_id" id="setPasswordKhatebId">
-                    <div class="mb-3">
-                        <label for="newKhatebPassword" class="form-label">كلمة المرور الجديدة</label>
-                        <input type="password" class="form-control" id="newKhatebPassword" name="password"
-                               minlength="6" placeholder="6 أحرف على الأقل" required autocomplete="new-password">
-                        <small class="text-muted">
-                            كلمة المرور تُخزَّن مشفّرة في قاعدة البيانات ولا يمكن استرجاعها.
-                        </small>
-                    </div>
-                    <div class="mb-3">
-                        <label for="newKhatebPassword2" class="form-label">تأكيد كلمة المرور</label>
-                        <input type="password" class="form-control" id="newKhatebPassword2" name="confirm_password"
-                               minlength="6" placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-save"></i> حفظ كلمة المرور
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- جدول الخطيب Modal -->
-<div class="modal fade" id="khatebScheduleModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-calendar-week"></i> جدول الخطيب - <span id="khatebScheduleName"></span></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div id="khatebScheduleContent">جاري التحميل...</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-function filterByWeek() {
-    const val = document.getElementById('weekFilter').value;
-    const rows = document.querySelectorAll('#assignmentsTable tbody tr');
-    rows.forEach(row => {
-        if (val === 'all') {
-            row.style.display = '';
-        } else {
-            if (row.getAttribute('data-week') === val) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-            }
-        }
-    });
-}
-
-function deleteSelectedWeek() {
-    const val = document.getElementById('weekActionSelect').value;
-    if (!val) {
-        alert('يرجى اختيار أسبوع أولاً');
-        return;
-    }
-    if (!confirm('هل أنت متأكد من حذف جميع تعيينات أسبوع ' + val + ' بالكامل؟')) return;
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/settings/week/' + val + '/delete';
-    document.body.appendChild(form);
-    form.submit();
-}
-
-function reassignSelectedWeek() {
-    const val = document.getElementById('weekActionSelect').value;
-    if (!val) {
-        alert('يرجى اختيار أسبوع أولاً');
-        return;
-    }
-    if (!confirm('هل تريد إعادة توزيع أسبوع ' + val + ' تلقائياً؟ سيتم حذف التعيينات الحالية وإعادة إنشائها')) return;
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/settings/week/' + val + '/reassign';
-    document.body.appendChild(form);
-    form.submit();
-}
-
-function saveAssignment(id) {
-    fetch('/assignment/' + id + '/update', {
-        method: 'POST',
-        body: new URLSearchParams({
-            'khateb_id': document.getElementById('khateb_' + id).value,
-            'mosque_id': document.getElementById('mosque_' + id).value,
-            'khutba_topic': document.getElementById('topic_' + id).value,
-            'status': document.getElementById('status_' + id).value
-        })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            alert('تم الحفظ بنجاح');
-        } else {
-            alert('حدث خطأ: ' + data.message);
-        }
-    });
-}
-
-function saveKhatebSpecial(id) {
-    const formData = new FormData();
-    formData.append('availability_mode', document.getElementById('spec_mode_' + id).value);
-    formData.append('alternate_offset', document.getElementById('spec_off_' + id).value);
-    const sel = document.getElementById('spec_forbidden_' + id);
-    for (let i=0; i<sel.options.length; i++) {
-        if (sel.options[i].selected) formData.append('forbidden_mosques', sel.options[i].value);
-    }
-    fetch('/khateb/' + id + '/special/update', { method: 'POST', body: formData })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) alert('تم الحفظ بنجاح');
-        else alert('حدث خطأ: ' + data.message);
-    });
-}
-
-function setPassword(khatebId, khatebName) {
-    document.getElementById('setPasswordName').textContent = khatebName;
-    document.getElementById('setPasswordKhatebId').value = khatebId;
-    document.getElementById('setPasswordForm').action = '/khateb/' + khatebId + '/set_password';
-    document.getElementById('newKhatebPassword').value = '';
-    document.getElementById('newKhatebPassword2').value = '';
-    new bootstrap.Modal(document.getElementById('setPasswordModal')).show();
-}
-
-function toggleActive(khatebId) {
-    fetch('/khateb/' + khatebId + '/toggle_active', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            alert(data.message);
-            location.reload();
-        } else {
-            alert('حدث خطأ: ' + (data.message || ''));
-        }
-    })
-    .catch(err => { console.error(err); alert('حدث خطأ'); });
-}
-
-function showKhatebSchedule(khatebId, name) {
-    document.getElementById('khatebScheduleName').textContent = name;
-    document.getElementById('khatebScheduleContent').innerHTML = 'جاري التحميل...';
-    new bootstrap.Modal(document.getElementById('khatebScheduleModal')).show();
-    fetch('/api/khateb/' + khatebId + '/schedule')
-    .then(r => r.json())
-    .then(data => {
-        let html = '<div class="table-responsive"><table class="table table-bordered table-hover align-middle mb-0"><thead><tr class="table-light"><th>الأسبوع (جمعة)</th><th>المسجد</th><th>الموضوع</th><th>الحالة</th></tr></thead><tbody>';
-        data.schedule.forEach(s => {
-            if (s.has_assignment) {
-                let badgeClass = s.status === 'confirmed' ? 'bg-primary' : (s.status === 'completed' ? 'bg-success' : 'bg-warning text-dark');
-                let statusText = s.status === 'confirmed' ? 'مؤكد' : (s.status === 'completed' ? 'أُديت' : s.status);
-                html += '<tr><td><span class="fw-bold text-primary">' + s.week_date + '</span></td><td><strong>' + s.mosque_name + '</strong></td><td>' + s.topic + '</td><td><span class="badge ' + badgeClass + '">' + statusText + '</span></td></tr>';
-            } else if (s.is_rest) {
-                html += '<tr class="table-warning bg-opacity-25"><td><span class="text-muted">' + s.week_date + '</span></td><td colspan="3"><span class="badge bg-warning text-dark me-2"><i class="fas fa-bed ms-1"></i> راحة دورية</span> (جاهز كاحتياط)</td></tr>';
-            } else {
-                html += '<tr class="table-light"><td><span class="text-muted">' + s.week_date + '</span></td><td colspan="3" class="text-muted"><span class="badge bg-light text-muted border"><i class="fas fa-clock ms-1"></i> لم يتم التوزيع بعد</span></td></tr>';
-            }
-        });
-        html += '</tbody></table></div>';
-        document.getElementById('khatebScheduleContent').innerHTML = html;
-    });
-}
-</script>
 {% endblock %}

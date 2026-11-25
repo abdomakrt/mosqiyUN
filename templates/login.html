@@ -1,96 +1,84 @@
 {% extends "base.html" %}
 
-{% block title %}تسجيل الدخول - نظام توزيع الخطباء{% endblock %}
+{% block title %}تسجيل الدخول | نظام توزيع خطباء الجمعة{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="text-center mb-4">
-            <h1><i class="fas fa-mosque"></i> نظام توزيع الخطباء</h1>
-            <p class="text-muted">سجّل الدخول للمتابعة</p>
-        </div>
-    </div>
-</div>
-
-<div class="row justify-content-center">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body p-4">
-
-                <form method="POST" action="{{ url_for('login') }}" novalidate>
-
-                    <!-- اختيار نوع الدخول -->
-                    <div class="row g-2 mb-4">
-                        <div class="col-6">
-                            <input class="btn-check" type="radio" name="role" id="roleAdmin"
-                                   value="admin" {% if role != 'khateb' %}checked{% endif %} onchange="switchLoginRole('admin')">
-                            <label class="btn btn-outline-primary w-100" for="roleAdmin">
-                                <i class="fas fa-user-shield"></i> دخول المدير
-                            </label>
-                        </div>
-                        <div class="col-6">
-                            <input class="btn-check" type="radio" name="role" id="roleKhateb"
-                                   value="khateb" {% if role == 'khateb' %}checked{% endif %} onchange="switchLoginRole('khateb')">
-                            <label class="btn btn-outline-primary w-100" for="roleKhateb">
-                                <i class="fas fa-user"></i> دخول الخطيب
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- بيانات المدير -->
-                    <div id="adminPanel" {% if role == 'khateb' %}style="display:none;"{% endif %}>
-                        <div class="mb-3">
-                            <label for="adminPassword" class="form-label">كلمة مرور المدير</label>
-                            <input type="password" class="form-control" id="adminPassword" name="password"
-                                   placeholder="أدخل كلمة المرور" autocomplete="current-password">
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">
-                            <i class="fas fa-sign-in-alt"></i> دخول كمدير
+<div class="row justify-content-center mt-3 mb-5">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 border-0 text-center">
+                <i class="fa-solid fa-mosque fa-3x text-success mb-2"></i>
+                <h4 class="fw-bold text-dark mb-0">نظام توزيع خطباء الجمعة</h4>
+                <p class="text-muted small">يرجى اختيار نوع الحساب للمتابعة</p>
+                
+                <!-- تبديل نوع الدخول -->
+                <ul class="nav nav-pills nav-fill bg-light p-1 rounded-pill mt-3" id="loginTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active rounded-pill fw-bold" id="admin-tab" data-bs-toggle="pill" data-bs-target="#admin-login" type="button" role="tab">
+                            <i class="fa-solid fa-user-shield me-1"></i> مدير النظام
                         </button>
-                    </div>
-
-                    <!-- بيانات الخطيب -->
-                    <div id="khatebPanel" {% if role != 'khateb' %}style="display:none;"{% endif %}>
-                        <div class="mb-3">
-                            <label for="khatebPhone" class="form-label">رقم الجوال</label>
-                            <input type="tel" class="form-control" id="khatebPhone" name="phone"
-                                   placeholder="مثال: 0501234567" inputmode="numeric" autocomplete="tel">
-                        </div>
-                        <div class="mb-3">
-                            <label for="khatebPassword" class="form-label">كلمة المرور</label>
-                            <input type="password" class="form-control" id="khatebPassword" name="khateb_password"
-                                   placeholder="أدخل كلمة المرور التي اخترتها عند التسجيل"
-                                   autocomplete="current-password">
-                            <small class="text-muted">كلمة المرور التي اخترتها أنت عند التسجيل، بعد موافقة المدير على حسابك</small>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">
-                            <i class="fas fa-sign-in-alt"></i> دخول كخطيب
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link rounded-pill fw-bold" id="khateb-tab" data-bs-toggle="pill" data-bs-target="#khateb-login" type="button" role="tab">
+                            <i class="fa-solid fa-user-tie me-1"></i> الخطيب
                         </button>
-                        <div class="text-center mt-3">
-                            <a href="{{ url_for('register') }}" class="text-decoration-none">
-                                <i class="fas fa-user-plus"></i> ليس لديك حساب؟ سجّل الآن
-                            </a>
-                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card-body p-4 pt-2">
+                <div class="tab-content" id="loginTabsContent">
+                    
+                    <!-- نموذج دخول المدير -->
+                    <div class="tab-pane fade show active" id="admin-login" role="tabpanel">
+                        <form method="POST" action="{{ url_for('login') }}">
+                            <input type="hidden" name="login_type" value="admin">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">كلمة مرور المدير</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="fa-solid fa-lock text-muted"></i></span>
+                                    <input type="password" name="password" class="form-control" placeholder="أدخل كلمة مرور الإدارة" required autofocus>
+                                </div>
+                                <small class="text-muted">الافتراضي عند أول تشغيل: <code>admin123</code></small>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm">
+                                <i class="fa-solid fa-right-to-bracket me-2"></i> دخول لوحة الإدارة
+                            </button>
+                        </form>
                     </div>
 
-                </form>
+                    <!-- نموذج دخول الخطيب -->
+                    <div class="tab-pane fade" id="khateb-login" role="tabpanel">
+                        <form method="POST" action="{{ url_for('login') }}">
+                            <input type="hidden" name="login_type" value="khateb">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">رقم الجوال</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="fa-solid fa-phone text-muted"></i></span>
+                                    <input type="text" name="phone" class="form-control" placeholder="مثال: 0501234567" required>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">كلمة المرور</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="fa-solid fa-key text-muted"></i></span>
+                                    <input type="password" name="password" class="form-control" placeholder="كلمة المرور الخاصة بك" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100 py-2 fw-bold shadow-sm">
+                                <i class="fa-solid fa-arrow-right-to-bracket me-2"></i> دخول الخطيب
+                            </button>
+                            <div class="text-center mt-3">
+                                <a href="{{ url_for('register') }}" class="small text-decoration-none text-muted">
+                                    لست مسجلاً بعد؟ <span class="text-success fw-bold">سجّل كخطيب جديد هنا</span>
+                                </a>
+                            </div>
+                        </form>
+                    </div>
 
+                </div>
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-function switchLoginRole(role) {
-    if (role === 'admin') {
-        document.getElementById('adminPanel').style.display = '';
-        document.getElementById('khatebPanel').style.display = 'none';
-    } else {
-        document.getElementById('adminPanel').style.display = 'none';
-        document.getElementById('khatebPanel').style.display = '';
-    }
-}
-</script>
 {% endblock %}

@@ -3,465 +3,181 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}نظام توزيع الخطباء{% endblock %}</title>
-    
-    <!-- Bootstrap RTL -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>{% block title %}نظام توزيع خطباء الجمعة{% endblock %}</title>
+    <!-- Bootstrap 5 RTL -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css">
+    <!-- Google Font Cairo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
     <style>
-        * {
-            font-family: 'Noto Sans Arabic', Arial, sans-serif;
-        }
-        
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Cairo', sans-serif;
+            background-color: #f4f6f9;
+            color: #2b2f33;
             min-height: 100vh;
-            direction: rtl;
+            display: flex;
+            flex-direction: column;
         }
-        
-        .navbar {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        
         .navbar-brand {
-            font-weight: 600;
-            color: #2c3e50 !important;
+            font-weight: 800;
+            color: #1b4332 !important;
+            letter-spacing: -0.5px;
         }
-        
+        .navbar-custom {
+            background-color: #ffffff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
         .nav-link {
-            color: #2c3e50 !important;
-            font-weight: 500;
-            margin: 0 5px;
+            font-weight: 600;
+            color: #495057;
+            padding: 0.5rem 0.9rem !important;
             border-radius: 8px;
-            transition: all 0.3s ease;
+            transition: all 0.2s;
         }
-        
         .nav-link:hover, .nav-link.active {
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            color: white !important;
+            color: #1b4332 !important;
+            background-color: #e8f5e9;
         }
-        
-        .main-content {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            margin: 20px auto;
-            padding: 30px;
-            backdrop-filter: blur(10px);
-        }
-        
         .card {
             border: none;
-            border-radius: 15px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
-            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.04);
+            transition: transform 0.2s;
         }
-        
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
-        }
-        
-        .stats-card {
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            color: white;
-            text-align: center;
-        }
-        
-        .stats-card i {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-        }
-        
-        .stats-card h3 {
-            font-size: 2rem;
-            font-weight: 700;
-            margin: 0;
-        }
-        
-        .stats-card p {
-            font-size: 1rem;
-            margin: 5px 0 0 0;
-            opacity: 0.9;
-        }
-        
         .btn-primary {
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            border: none;
-            border-radius: 10px;
-            padding: 10px 25px;
+            background-color: #2d6a4f;
+            border-color: #2d6a4f;
             font-weight: 600;
-            transition: all 0.3s ease;
+            border-radius: 8px;
         }
-        
         .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
+            background-color: #1b4332;
+            border-color: #1b4332;
         }
-        
         .btn-success {
-            background: linear-gradient(45deg, #27ae60, #2ecc71);
-            border: none;
-            border-radius: 10px;
-            padding: 10px 25px;
+            background-color: #25d366;
+            border-color: #25d366;
+            color: #fff;
             font-weight: 600;
         }
-        
-        .btn-warning {
-            background: linear-gradient(45deg, #f39c12, #f1c40f);
-            border: none;
-            border-radius: 10px;
-            padding: 10px 25px;
-            font-weight: 600;
+        .btn-success:hover {
+            background-color: #1ebe5d;
+            border-color: #1ebe5d;
         }
-        
-        .btn-danger {
-            background: linear-gradient(45deg, #e74c3c, #c0392b);
-            border: none;
-            border-radius: 10px;
-            padding: 10px 25px;
-            font-weight: 600;
+        .badge-cycle {
+            background-color: #e8f5e9;
+            color: #1b4332;
+            font-weight: 700;
+            font-size: 0.85rem;
+            padding: 0.4em 0.8em;
+            border-radius: 50px;
         }
-        
-        .form-control, .form-select {
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            padding: 12px 15px;
-            transition: all 0.3s ease;
-        }
-        
-        .form-control:focus, .form-select:focus {
-            border-color: #3498db;
-            box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
-        }
-        
-        .table {
-            border-radius: 15px;
+        .table-responsive {
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+            background: #fff;
         }
-        
         .table thead th {
-            background: linear-gradient(45deg, #2c3e50, #34495e);
-            color: white;
-            border: none;
-            padding: 12px 15px;
-            font-weight: 600;
+            background-color: #f8fafc;
+            color: #495057;
+            border-bottom: 2px solid #edf2f7;
+            font-weight: 700;
         }
-        
-        .table tbody tr {
-            transition: background-color 0.2s ease;
+        footer {
+            margin-top: auto;
+            background-color: #ffffff;
+            border-top: 1px solid #edf2f7;
         }
-        
-        .table tbody tr:hover {
-            background: rgba(52, 152, 219, 0.08);
-        }
-        
-        .table tbody td {
-            padding: 12px 15px;
-            vertical-align: middle;
-        }
-        
-        .alert {
-            border-radius: 15px;
-            border: none;
-            padding: 15px 20px;
-            margin: 15px 0;
-        }
-        
-        .alert-success {
-            background: linear-gradient(45deg, #d4edda, #c3e6cb);
-            color: #155724;
-        }
-        
-        .alert-danger {
-            background: linear-gradient(45deg, #f8d7da, #f5c6cb);
-            color: #721c24;
-        }
-        
-        .alert-info {
-            background: linear-gradient(45deg, #d1ecf1, #bee5eb);
-            color: #0c5460;
-        }
-        
-        .progress {
-            height: 10px;
-            border-radius: 10px;
-            background: rgba(52, 152, 219, 0.2);
-            overflow: hidden;
-        }
-        
-        .progress-bar {
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            border-radius: 10px;
-            transition: width 0.6s ease;
-        }
-        
-        .badge {
-            border-radius: 10px;
-            padding: 8px 12px;
-            font-weight: 600;
-        }
-        
-        .modal-content {
-            border-radius: 15px;
-            border: none;
-        }
-        
-        .modal-header {
-            background: linear-gradient(45deg, #3498db, #2980b9);
-            color: white;
-            border-radius: 15px 15px 0 0;
-        }
-        
-        .modal-footer {
-            border-radius: 0 0 15px 15px;
-        }
-        
-        .footer {
-            text-align: center;
-            padding: 30px 0;
-            color: white;
-            margin-top: 50px;
-        }
-        
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
+        /* Mobile adjustments */
+        @media (max-width: 768px) {
+            .navbar-nav {
+                padding-top: 1rem;
             }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .fade-in {
-            animation: fadeInUp 0.6s ease-out;
-        }
-        
-        .alert-warning {
-            background: linear-gradient(45deg, #fff3cd, #ffeaa7);
-            color: #856404;
-            border: none;
-            border-radius: 15px;
-            padding: 15px 20px;
-            margin: 15px 0;
-        }
-
-        /* Notifications shown by JS should not block the page.
-           Position them fixed in the corner and allow pointer events. */
-        .notification {
-            position: fixed;
-            top: 20px;
-            left: 20px; /* RTL layout: show on left so it doesn't overlap navbar */
-            width: 320px;
-            z-index: 1080; /* above modals/backdrops (Bootstrap uses 1040-1050) */
-            pointer-events: auto;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-        }
-        
-        .section-header {
-            background: linear-gradient(45deg, #2c3e50, #34495e);
-            color: white;
-            padding: 20px;
-            border-radius: 15px 15px 0 0;
-            margin: 0;
-        }
-        
-        .section-body {
-            padding: 25px;
-            background: white;
-            border-radius: 0 0 15px 15px;
-        }
-
-        /* ===================================================
-           تحسينات التجاوب مع جميع الشاشات (Responsive Design)
-           =================================================== */
-
-        /* شاشات الجوال والهواتف الذكية (أقل من 768px) */
-        @media (max-width: 767.98px) {
-            body {
-                font-size: 0.94rem;
-            }
-            .main-content {
-                margin: 10px auto 20px;
-                padding: 16px 12px;
-                border-radius: 14px;
-                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
-            }
-            .container-fluid {
-                padding-left: 8px;
-                padding-right: 8px;
-            }
-            h1, .h1 {
-                font-size: 1.55rem;
-            }
-            h2, .h2 {
-                font-size: 1.35rem;
-            }
-            h4, .h4 {
-                font-size: 1.18rem;
-            }
-            h5, .h5 {
-                font-size: 1.05rem;
-            }
-            .card {
-                border-radius: 12px;
-                margin-bottom: 0.9rem;
-            }
-            .card:hover {
-                transform: none;
-            }
-            .card-body {
-                padding: 14px;
-            }
-            .alert {
-                padding: 12px 14px;
-                font-size: 0.92rem;
-                border-radius: 12px;
-            }
-            .btn {
-                padding: 8px 16px;
-                font-size: 0.92rem;
-                border-radius: 8px;
-            }
-            .navbar {
-                padding: 8px 12px;
-            }
-            .navbar-brand {
-                font-size: 1.1rem;
-            }
-            .navbar-nav .nav-link {
-                padding: 10px 14px;
-                margin: 3px 0;
-            }
-            .table-responsive {
-                margin-bottom: 0;
-                border-radius: 10px;
-                -webkit-overflow-scrolling: touch;
-            }
-            .table tbody td, .table thead th {
-                padding: 10px 8px;
-                font-size: 0.88rem;
-            }
-            .notification {
-                top: 10px;
-                left: 10px;
-                right: 10px;
-                width: auto;
-                max-width: 100%;
-            }
-            .stats-card {
-                padding: 14px 10px;
-            }
-            .stats-card i {
-                font-size: 1.8rem;
-                margin-bottom: 6px;
-            }
-            .stats-card h3 {
-                font-size: 1.5rem;
-            }
-            .stats-card p {
-                font-size: 0.88rem;
-            }
-            .footer {
-                padding: 20px 0;
-                font-size: 0.88rem;
-                margin-top: 30px;
-            }
-        }
-
-        /* شاشات الأجهزة اللوحية (768px إلى 991.98px) */
-        @media (min-width: 768px) and (max-width: 991.98px) {
-            .main-content {
-                padding: 22px 18px;
-                margin: 15px auto;
-            }
-            .container-fluid {
-                padding-left: 14px;
-                padding-right: 14px;
-            }
-        }
-
-        /* حماية الأجهزة اللمسية من التذبذب البصري */
-        @media (hover: none) {
-            .card:hover {
-                transform: none !important;
-            }
-            .table tbody tr:hover {
-                transform: none !important;
+            .nav-item {
+                margin-bottom: 0.25rem;
             }
         }
     </style>
-    
-    {% block extra_css %}{% endblock %}
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg sticky-top">
+
+    <!-- القائمة العلوية -->
+    <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
         <div class="container">
-            <a class="navbar-brand" href="/">
-                <i class="fas fa-mosque"></i>
-                نظام توزيع الخطباء
+            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
+                <i class="fa-solid fa-mosque me-2 text-success fs-4"></i>
+                <span>موزّع الجمعة</span>
             </a>
             
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+                <i class="fa-solid fa-bars-staggered text-success fs-4"></i>
             </button>
-            
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    {% if session.get('role') == 'admin' %}
+
+            <div class="collapse navbar-collapse" id="mainNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    {% if g.is_admin %}
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
-                            <i class="fas fa-home"></i> الرئيسية
+                        <a class="nav-link {% if request.endpoint == 'distribution' %}active{% endif %}" href="{{ url_for('distribution') }}">
+                            <i class="fa-solid fa-calendar-week me-1"></i> التوزيع الأسبوعي
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'mosques' %}active{% endif %}" href="/mosques">
-                            <i class="fas fa-building"></i> المساجد
+                        <a class="nav-link {% if request.endpoint == 'mosques' %}active{% endif %}" href="{{ url_for('mosques') }}">
+                            <i class="fa-solid fa-kaaba me-1"></i> المساجد
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'khutbas' %}active{% endif %}" href="/khutbas">
-                            <i class="fas fa-users"></i> الخطباء
+                        <a class="nav-link {% if request.endpoint == 'khutbas' %}active{% endif %}" href="{{ url_for('khutbas') }}">
+                            <i class="fa-solid fa-users me-1"></i> الخطباء
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'distribution' %}active{% endif %}" href="/distribution">
-                            <i class="fas fa-calendar-alt"></i> التوزيع
+                        <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}" href="{{ url_for('settings') }}">
+                            <i class="fa-solid fa-sliders me-1"></i> الإعدادات والنسخ
+                        </a>
+                    </li>
+                    {% elif g.current_khateb %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'my_portal' %}active{% endif %}" href="{{ url_for('my_portal') }}">
+                            <i class="fa-solid fa-user-tie me-1"></i> مسجدي وجدولي
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}" href="/settings">
-                            <i class="fas fa-cog"></i> الإعدادات
-                        </a>
-                    </li>
-                    {% elif session.get('role') == 'khateb' %}
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'my' %}active{% endif %}" href="/my">
-                            <i class="fas fa-calendar-week"></i> جدولي
+                        <a class="nav-link {% if request.endpoint == 'my_profile' %}active{% endif %}" href="{{ url_for('my_profile') }}">
+                            <i class="fa-solid fa-id-card me-1"></i> إعداداتي وتفضيلاتي
                         </a>
                     </li>
                     {% endif %}
-                    {% if session.get('role') %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="/logout">
-                            <i class="fas fa-sign-out-alt"></i> تسجيل الخروج
+                </ul>
+
+                <ul class="navbar-nav ms-auto align-items-lg-center">
+                    {% if session.get('user_id') %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="fa-regular fa-circle-user fs-5 text-secondary me-1"></i>
+                            <span>{{ session.get('name', 'المستخدم') }}</span>
                         </a>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                            <li><span class="dropdown-item-text text-muted small">الدخول كـ: {% if g.is_admin %}مدير النظام{% else %}خطيب{% endif %}</span></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="{{ url_for('logout') }}"><i class="fa-solid fa-arrow-right-from-bracket me-2"></i>تسجيل الخروج</a></li>
+                        </ul>
                     </li>
                     {% else %}
                     <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'register' %}active{% endif %}" href="{{ url_for('register') }}">
-                            <i class="fas fa-user-plus"></i> تسجيل خطيب
+                        <a class="nav-link text-primary fw-bold" href="{{ url_for('login') }}">
+                            <i class="fa-solid fa-right-to-bracket me-1"></i> تسجيل الدخول
+                        </a>
+                    </li>
+                    <li class="nav-item ms-lg-2">
+                        <a class="btn btn-outline-success btn-sm rounded-pill px-3" href="{{ url_for('register') }}">
+                            <i class="fa-solid fa-user-plus me-1"></i> تسجيل خطيب جديد
                         </a>
                     </li>
                     {% endif %}
@@ -470,140 +186,38 @@
         </div>
     </nav>
 
-    <!-- Main Content -->
-    <div class="container-fluid">
-        <div class="row justify-content-center">
-            <div class="col-lg-10 col-xl-8">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            {% set alert_type = 'danger' if category == 'error' else category %}
-                            <div class="alert alert-{{ alert_type }} fade-in" role="alert">
-                                <i class="fas fa-{{ 'check-circle' if category == 'success' else 'exclamation-triangle' if category == 'error' else 'info-circle' }}"></i>
-                                {{ message }}
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-
-                <div class="main-content">
-                    {% block content %}{% endblock %}
-                </div>
-            </div>
-        </div>
+    <!-- رسائل التنبيهات (Flash Messages) -->
+    <div class="container mt-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show border-0 shadow-sm" role="alert">
+                        {% if category == 'success' %}<i class="fa-solid fa-circle-check me-2"></i>{% endif %}
+                        {% if category == 'danger' %}<i class="fa-solid fa-triangle-exclamation me-2"></i>{% endif %}
+                        {% if category == 'warning' %}<i class="fa-solid fa-circle-exclamation me-2"></i>{% endif %}
+                        {% if category == 'info' %}<i class="fa-solid fa-circle-info me-2"></i>{% endif %}
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
     </div>
 
-    <!-- Footer -->
-    <footer class="footer">
+    <!-- محتوى الصفحة -->
+    <main class="container my-4 flex-grow-1">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- الفوتر -->
+    <footer class="py-3 mt-4 text-center text-muted small">
         <div class="container">
-            <p>نظام توزيع الخطباء - نرجوا الدعاء للأخ عبدالستار</p>
+            <span>نظام توزيع خطباء الجمعة © 2026 • خوارزمية ذكية وعادلة للدورات التلقائية المستمرة</span>
         </div>
     </footer>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Move modals to body to avoid stacking-context issues with backdrop -->
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('.modal').forEach(function(modal) {
-            if (modal.parentElement !== document.body) {
-                document.body.appendChild(modal);
-            }
-        });
-    });
-    </script>
-    <!-- Custom JS -->
-    <script src="/static/js/main.js"></script>
-    
-    {% block extra_js %}{% endblock %}
-
-<!-- نافذة تأكيد الاعتذار الإيمانية -->
-<div id="customApologyModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,0.65); backdrop-filter:blur(3px); align-items:center; justify-content:center; padding:12px; overflow-y:auto;" dir="rtl">
-    <div style="background:#ffffff; max-width:520px; width:100%; border-radius:16px; box-shadow:0 20px 40px rgba(0,0,0,0.25); overflow:hidden; border-top:6px solid #dc2626; animation:fadeInScale 0.2s ease-out; max-height:92vh; display:flex; flex-direction:column; margin:auto;">
-        <div style="padding:20px 18px 12px; text-align:center; overflow-y:auto; flex:1 1 auto; -webkit-overflow-scrolling:touch;">
-            <div style="width:54px; height:54px; border-radius:50%; background:#fee2e2; color:#dc2626; display:inline-flex; align-items:center; justify-content:center; font-size:24px; margin-bottom:10px;">
-                <i class="fas fa-exclamation-triangle"></i>
-            </div>
-            <h5 style="font-weight:800; color:#991b1b; margin-bottom:10px; font-size:1.15rem;">
-                تأكيد الاعتذار عن الخطبة
-            </h5>
-            <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:12px; margin-bottom:10px; text-align:right; color:#991b1b; font-size:0.9rem; line-height:1.7;">
-                <strong class="d-block mb-1 text-danger">
-                    <i class="fas fa-exclamation-circle ms-1"></i> تنبيه حاسم:
-                </strong>
-                عند تأكيد الاعتذار، <strong>سيتم تعيين خطيب بديل فوراً ومؤكداً تلقائياً</strong> للمسجد، <strong>ولن يمكنك التراجع عن الاعتذار إطلاقاً</strong> منعاً لتعارض التعيينات والخلل.
-            </div>
-            <p style="font-size:0.95rem; font-weight:700; color:#1e293b; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:8px 10px; line-height:1.6; margin-bottom:8px;">
-                «استعن بالله ولا تعجز، ولا تستبدل نفسك بغيرك فيستبدلك الله»
-            </p>
-            <div style="text-align:right; font-size:0.85rem; color:#475569; background:#f8fafc; border-radius:10px; padding:8px 10px; line-height:1.6; margin-bottom:6px;">
-                <div>
-                    <strong style="color:#0f766e;">قال رسول الله ﷺ:</strong>
-                    «احْرِصْ عَلَى مَا يَنْفَعُكَ، وَاسْتَعِنْ بِاللَّهِ وَلَا تَعْجَزْ» (رواه مسلم)
-                </div>
-            </div>
-        </div>
-        <div style="padding:14px 18px 18px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; background:#f8fafc; border-top:1px solid #e2e8f0; flex-shrink:0;">
-            <button type="button" id="btnApologyCancel" class="btn btn-success px-3 py-2 fw-bold flex-grow-1" style="font-size:0.95rem; border-radius:10px; min-width:130px;">
-                <i class="fas fa-check-circle ms-1"></i> استعنت بالله (التزام بالخطبة)
-            </button>
-            <button type="button" id="btnApologyConfirm" class="btn btn-danger px-3 py-2 fw-bold flex-grow-1" style="font-size:0.92rem; border-radius:10px; min-width:130px;">
-                <i class="fas fa-user-times ms-1"></i> تأكيد الاعتذار نهائياً
-            </button>
-        </div>
-    </div>
-</div>
-
-<!-- إشعار التراجع عن الاعتذار -->
-<div id="istiAnaToast" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:10000; background:#15803d; color:#fff; padding:10px 18px; border-radius:999px; font-weight:700; font-size:0.92rem; box-shadow:0 10px 25px rgba(21,128,61,0.35); max-width:92vw; text-align:center;" dir="rtl">
-    <i class="fas fa-heart ms-1"></i> أعانك الله وسدّد خطاك وكتب أجرك! تم التراجع عن الاعتذار والالتزام بالخطبة.
-</div>
-
-<script>
-function askApologyConfirmation() {
-    return new Promise(function(resolve) {
-        var modal = document.getElementById('customApologyModal');
-        var btnCancel = document.getElementById('btnApologyCancel');
-        var btnConfirm = document.getElementById('btnApologyConfirm');
-        if (!modal) {
-            resolve(confirm('تنبيه هام: عند تأكيد الاعتذار سيتم تعيين خطيب بديل فوراً ومؤكداً تلقائياً، ولن تتمكن من التراجع عن الاعتذار نهائياً. هل أنت متأكد من الاعتذار؟'));
-            return;
-        }
-        modal.style.display = 'flex';
-
-        function cleanup(result) {
-            modal.style.display = 'none';
-            btnCancel.onclick = null;
-            btnConfirm.onclick = null;
-            if (!result) {
-                var toast = document.getElementById('istiAnaToast');
-                if (toast) {
-                    toast.style.display = 'block';
-                    setTimeout(function() { toast.style.display = 'none'; }, 3500);
-                }
-            }
-            resolve(result);
-        }
-
-        btnCancel.onclick = function() { cleanup(false); };
-        btnConfirm.onclick = function() { cleanup(true); };
-    });
-}
-
-function confirmKhatebApology(event, formEl) {
-    if (formEl.dataset.apologyConfirmed === '1') {
-        return true;
-    }
-    if (event) event.preventDefault();
-    askApologyConfirmation().then(function(confirmed) {
-        if (confirmed) {
-            formEl.dataset.apologyConfirmed = '1';
-            formEl.submit();
-        }
-    });
-    return false;
-}
-</script>
-
+    <!-- Bootstrap 5 Bundle JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_scripts %}{% endblock %}
 </body>
 </html>

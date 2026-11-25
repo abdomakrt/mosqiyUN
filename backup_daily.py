@@ -4,7 +4,7 @@
 نسخة احتياطية يومية — يُجدوَل عبر Scheduled Tasks في PythonAnywhere.
 
 الأمر المقترح في Cron:
-    /home/khateebs/.virtualenvs/mosqi/bin/python /home/khateebs/mosqi/backup_daily.py
+    /home/khateebs/.virtualenvs/mosqiyUN/bin/python /home/khateebs/mosqiyUN/backup_daily.py
 
 ينشئ نسخة في instance/ ويحتفظ بآخر 5 نسخ فقط، ثم يطبع رابط التنزيل.
 """

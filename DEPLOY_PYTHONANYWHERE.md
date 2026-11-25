@@ -7,12 +7,12 @@
 
 | البند | القيمة |
 |---|---|
-| المستودع | `https://github.com/abdomakrt/mosqi.git` |
+| المستودع | `https://github.com/abdomakrt/mosqiyUN.git` |
 | الخادم | `https://khateebs.pythonanywhere.com` |
-| مجلد التطبيق | `/home/khateebs/mosqi` |
-| البيئة الافتراضية | `/home/khateebs/.virtualenvs/mosqi` |
-| ملف WSGI | `/home/khateebs/mosqi/wsgi.py` |
-| قاعدة البيانات | `/home/khateebs/mosqi/instance/khutba_distribution.db` |
+| مجلد التطبيق | `/home/khateebs/mosqiyUN` |
+| البيئة الافتراضية | `/home/khateebs/.virtualenvs/mosqiyUN` |
+| ملف WSGI | `/home/khateebs/mosqiyUN/wsgi.py` |
+| قاعدة البيانات | `/home/khateebs/mosqiyUN/instance/khutba_distribution.db` |
 | Python | 3.12 |
 
 ---
@@ -31,13 +31,13 @@
 افتح **Console** (Python 3.12) ونفّذ:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abdomakrt/mosqi/main/setup_paw.sh | bash
+curl -fsSL https://raw.githubusercontent.com/abdomakrt/mosqiyUN/main/setup_paw.sh | bash
 ```
 
 أو إذا كان الكود منزّلاً بالفعل:
 
 ```bash
-cd ~/mosqi && bash setup_paw.sh
+cd ~/mosqiyUN && bash setup_paw.sh
 ```
 
 ### ماذا سيطبع؟
@@ -67,10 +67,10 @@ cd ~/mosqi && bash setup_paw.sh
 
 | الحقل | القيمة |
 |---|---|
-| Source code | `/home/khateebs/mosqi` |
-| Working directory | `/home/khateebs/mosqi` |
-| Virtualenv | `/home/khateebs/.virtualenvs/mosqi` |
-| WSGI configuration file | `/home/khateebs/mosqi/wsgi.py` |
+| Source code | `/home/khateebs/mosqiyUN` |
+| Working directory | `/home/khateebs/mosqiyUN` |
+| Virtualenv | `/home/khateebs/.virtualenvs/mosqiyUN` |
+| WSGI configuration file | `/home/khateebs/mosqiyUN/wsgi.py` |
 
 اضغط **Save** ثم **Reload** (الرفع العمودي Green ✓).
 
@@ -79,7 +79,7 @@ cd ~/mosqi && bash setup_paw.sh
 ## الخطوة 4 — التحقق
 
 ```bash
-/home/khateebs/.virtualenvs/mosqi/bin/python /home/khateebs/mosqi/check_paw.py
+/home/khateebs/.virtualenvs/mosqiyUN/bin/python /home/khateebs/mosqiyUN/check_paw.py
 ```
 
 يجب أن تطبع:
@@ -100,7 +100,7 @@ cd ~/mosqi && bash setup_paw.sh
 |---|---|
 | Frequency | Daily |
 | Time | 03:00 (أي وقت) |
-| Command | `/home/khateebs/.virtualenvs/mosqi/bin/python /home/khateebs/mosqi/backup_daily.py` |
+| Command | `/home/khateebs/.virtualenvs/mosqiyUN/bin/python /home/khateebs/mosqiyUN/backup_daily.py` |
 
 > الخطة المجانية تسمح بمهمة **يومية واحدة** — وهذا يكفي.
 > يحتفظ بآخر **5** نسخ، وكلها متاحة للتنزيل من:
@@ -113,7 +113,7 @@ cd ~/mosqi && bash setup_paw.sh
 3. (اختياري) أو من الـ Console:
 
 ```bash
-cd ~/mosqi && cp instance/backup_XXXX.db instance/khutba_distribution.db
+cd ~/mosqiyUN && cp instance/backup_XXXX.db instance/khutba_distribution.db
 ```
 
 > يتم حفظ نسخة أمان من الوضع الحالي تلقائياً قبل أي استعادة.
@@ -123,7 +123,7 @@ cd ~/mosqi && cp instance/backup_XXXX.db instance/khutba_distribution.db
 ## التحديثات (git pull)
 
 ```bash
-cd ~/mosqi && git pull origin main
+cd ~/mosqiyUN && git pull origin main
 ```
 
 ثم من تبويب **Web** → **Reload**.
@@ -149,10 +149,10 @@ cd ~/mosqi && git pull origin main
 ### `ModuleNotFoundError: No module named 'flask'`
 
 الـ virtualenv غير صحيح. تأكد أن مسار Virtualenv في تبويب Web هو:
-`/home/khateebs/.virtualenvs/mosqi` — أو أعد التثبيت:
+`/home/khateebs/.virtualenvs/mosqiyUN` — أو أعد التثبيت:
 
 ```bash
-~/mosqi/setup_paw.sh
+~/mosqiyUN/setup_paw.sh
 ```
 
 ### `unable to open database file`
@@ -160,7 +160,7 @@ cd ~/mosqi && git pull origin main
 مجلد `instance/` غير موجود أو غير قابل للكتابة:
 
 ```bash
-mkdir -p ~/mosqi/instance && chmod 700 ~/mosqi/instance
+mkdir -p ~/mosqiyUN/instance && chmod 700 ~/mosqiyUN/instance
 ```
 
 ### الصفحة تُعرض لكن البيانات فارغة
@@ -168,13 +168,13 @@ mkdir -p ~/mosqi/instance && chmod 700 ~/mosqi/instance
 الترحيل لم يُنفَّذ:
 
 ```bash
-~/mosqi/.virtualenvs/mosqi/bin/python -c "import sys; sys.path.insert(0,'/home/khateebs/mosqi'); from migrate import run_migrations; run_migrations()"
+~/.virtualenvs/mosqiyUN/bin/python -c "import sys; sys.path.insert(0,'/home/khateebs/mosqiyUN'); from app import app, db, ensure_schema; ensure_schema(); app.app_context().push(); db.create_all()"
 ```
 
 ### أخطاء في السجل
 
 ```bash
-tail -50 ~/mosqi/instance/*.log 2>/dev/null
+tail -50 ~/mosqiyUN/instance/*.log 2>/dev/null
 ```
 
 أو من **Web** → تبويب **Error log**.
@@ -203,5 +203,5 @@ tail -50 ~/mosqi/instance/*.log 2>/dev/null
 ## تذكير
 
 - `instance/` و `.env` **غير مرفوعان** لـ GitHub (خصوصية + أسرار).
-- قاعدة البيانات تُنشأ تلقائياً عند أول إقلاع عبر `migrate.py`.
+- قاعدة البيانات تُنشأ تلقائياً عند أول إقلاع عبر `ensure_schema()` و `db.create_all()`.
 - كل التغييرات موثّقة في تاريخ Git.

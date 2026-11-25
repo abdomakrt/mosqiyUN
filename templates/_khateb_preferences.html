@@ -1,0 +1,230 @@
+{# مكونات مشتركة لنماذج الخطيب (التوفر، التناوب، جمعات الغياب، المساجد المزارة والمستثناة) #}
+
+{% macro render_availability_fields(id_prefix, mode_val='always', offset_val=0, offset_next=0, offset_after_next=1, next_friday=None, after_next_friday=None) %}
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label class="form-label fw-bold" for="{{ id_prefix }}_availability_mode">نظام التوفر للخطابة</label>
+        <select name="availability_mode" id="{{ id_prefix }}_availability_mode" class="form-select availability-mode-select" data-target="{{ id_prefix }}_alternate_wrap">
+            <option value="always" {% if mode_val == 'always' %}selected{% endif %}>متاح كل أسبوع دائماً</option>
+            <option value="alternate" {% if mode_val == 'alternate' %}selected{% endif %}>أسبوع بعد أسبوع (تناوبي)</option>
+        </select>
+    </div>
+    <div class="col-md-6 mb-3 {% if mode_val != 'alternate' %}d-none{% endif %}" id="{{ id_prefix }}_alternate_wrap">
+        <label class="form-label fw-bold" for="{{ id_prefix }}_alternate_offset">أسبوع بداية التناوب</label>
+        <select name="alternate_offset" id="{{ id_prefix }}_alternate_offset" class="form-select">
+            <option value="{{ offset_next }}" {% if offset_val == offset_next %}selected{% endif %}>
+                الجمعة القادمة ({{ next_friday.strftime('%Y-%m-%d') }})
+            </option>
+            <option value="{{ offset_after_next }}" {% if offset_val == offset_after_next %}selected{% endif %}>
+                الجمعة بعد القادمة ({{ after_next_friday.strftime('%Y-%m-%d') }})
+            </option>
+        </select>
+        <small class="text-muted">حدد أول جمعة يتاح فيها الخطيب ثم يتناوب النظام أسبوعاً بعد أسبوع.</small>
+    </div>
+</div>
+{% endmacro %}
+
+
+{% macro render_unavailable_fridays_picker(id_prefix, upcoming_fridays, extended_fridays, selected_dates=[]) %}
+{% set upcoming_set = upcoming_fridays | map(attribute='date_str') | list %}
+<div class="mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <label class="form-label fw-bold mb-0">جمعات عدم الإتاحة (الاعتذار المسبق بالاختيار)</label>
+        {% if extended_fridays %}
+        <select class="form-select form-select-sm extended-friday-select" style="width: auto; min-width: 195px;" data-prefix="{{ id_prefix }}">
+            <option value="">+ إضافة جمعة أبعد...</option>
+            {% for ef in extended_fridays %}
+            <option value="{{ ef.date_str }}">{{ ef.label }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+    </div>
+
+    <div class="border rounded p-2 bg-light-subtle" id="{{ id_prefix }}_unavailable_container">
+        <div class="row g-2">
+            {% for f in upcoming_fridays %}
+            <div class="col-6 col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input unavailable-date-cb" type="checkbox" name="unavailable_dates"
+                           value="{{ f.date_str }}" id="{{ id_prefix }}_unavail_{{ f.date_str }}"
+                           {% if f.date_str in selected_dates %}checked{% endif %}>
+                    <label class="form-check-label small" for="{{ id_prefix }}_unavail_{{ f.date_str }}">
+                        <span class="fw-semibold">{{ f.date_str }}</span>
+                        {% if loop.index == 1 %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">القادمة</span>
+                        {% elif loop.index == 2 %}
+                        <span class="badge bg-info-subtle text-info border border-info-subtle">بعد القادمة</span>
+                        {% endif %}
+                    </label>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mt-2" id="{{ id_prefix }}_extra_unavail_chips">
+            {% for d in selected_dates %}
+                {% if d not in upcoming_set %}
+                <span class="badge bg-warning-subtle text-dark border border-warning d-inline-flex align-items-center gap-2 px-2 py-1 extra-unavail-chip" data-date="{{ d }}">
+                    <input type="hidden" name="unavailable_dates" value="{{ d }}">
+                    <span>{{ d }}</span>
+                    <button type="button" class="btn-close btn-close-sm" style="font-size: 0.6rem;" aria-label="إزالة" onclick="this.closest('.extra-unavail-chip').remove()"></button>
+                </span>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    <small class="text-muted">اختر الجمعات التي يكون فيها الخطيب غير متاح دون الحاجة لكتابة التاريخ يدوياً.</small>
+</div>
+{% endmacro %}
+
+
+{% macro render_mosque_checkbox_grid(id_prefix, field_name, title, hint, mosques, selected_ids=[], system_locked_ids=[], css_class='') %}
+<div class="mb-3">
+    <label class="form-label fw-bold mb-1">{{ title }}</label>
+    {% if hint %}
+    <div class="text-muted small mb-2">{{ hint }}</div>
+    {% endif %}
+    {% if mosques %}
+    <div class="row g-2 border rounded p-2" style="max-height: 185px; overflow-y: auto;">
+        {% for m in mosques %}
+        {% set is_locked = m.id in system_locked_ids %}
+        <div class="col-md-6">
+            <div class="form-check">
+                <input class="form-check-input {{ css_class }}" type="checkbox"
+                       name="{{ field_name }}" value="{{ m.id }}"
+                       id="{{ id_prefix }}_{{ field_name }}_{{ m.id }}"
+                       {% if m.id in selected_ids or is_locked %}checked{% endif %}
+                       {% if is_locked %}disabled{% endif %}>
+                <label class="form-check-label small" for="{{ id_prefix }}_{{ field_name }}_{{ m.id }}">
+                    {{ m.name }}
+                    {% if is_locked %}
+                    <span class="badge bg-success-subtle text-success border border-success-subtle ms-1">موزع بالنظام</span>
+                    {% endif %}
+                </label>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-muted small border rounded p-2">لا توجد مساجد مسجلة حالياً.</div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro render_preferences_scripts() %}
+<script>
+function syncAlternateVisibility(selectEl) {
+    if (!selectEl) return;
+    const targetId = selectEl.getAttribute('data-target');
+    const wrap = document.getElementById(targetId);
+    if (!wrap) return;
+    wrap.classList.toggle('d-none', selectEl.value !== 'alternate');
+}
+
+function addExtraUnavailableChip(prefix, dateStr) {
+    if (!dateStr) return;
+    const existingCb = document.getElementById(`${prefix}_unavail_${dateStr}`);
+    if (existingCb) {
+        existingCb.checked = true;
+        return;
+    }
+    const container = document.getElementById(`${prefix}_extra_unavail_chips`);
+    if (!container) return;
+    if (container.querySelector(`.extra-unavail-chip[data-date="${dateStr}"]`)) return;
+
+    const chip = document.createElement('span');
+    chip.className = 'badge bg-warning-subtle text-dark border border-warning d-inline-flex align-items-center gap-2 px-2 py-1 extra-unavail-chip';
+    chip.setAttribute('data-date', dateStr);
+
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'unavailable_dates';
+    hidden.value = dateStr;
+
+    const label = document.createElement('span');
+    label.textContent = dateStr;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.style.fontSize = '0.6rem';
+    closeBtn.setAttribute('aria-label', 'إزالة');
+    closeBtn.addEventListener('click', () => chip.remove());
+
+    chip.appendChild(hidden);
+    chip.appendChild(label);
+    chip.appendChild(closeBtn);
+    container.appendChild(chip);
+}
+
+function normalizeDigitsJS(str) {
+    const map = {'٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
+    return (str || '').replace(/[٠-٩۰-۹]/g, ch => map[ch] || ch);
+}
+
+function validateKhatebNameField(inputEl) {
+    const val = (inputEl.value || '').trim();
+    if (!val || val.length < 2) {
+        inputEl.setCustomValidity('يرجى إدخال اسم الخطيب (حرفين على الأقل)');
+        return false;
+    }
+    if (/[0-9٠-٩۰-۹]/.test(val)) {
+        inputEl.setCustomValidity('لا يمكن إدخال أرقام في حقل اسم الخطيب');
+        return false;
+    }
+    if (!/[a-zA-Z\u0621-\u064A]/.test(val)) {
+        inputEl.setCustomValidity('يجب أن يحتوي الاسم على حروف صحيحة');
+        return false;
+    }
+    inputEl.setCustomValidity('');
+    return true;
+}
+
+function validateKhatebPhoneField(inputEl) {
+    const raw = normalizeDigitsJS(inputEl.value || '').replace(/[\s\-]/g, '');
+    if (!/^\+?[0-9]{8,15}$/.test(raw)) {
+        inputEl.setCustomValidity('رقم الجوال يجب أن يحتوي على أرقام فقط (من 8 إلى 15 رقماً) دون حروف');
+        return false;
+    }
+    inputEl.setCustomValidity('');
+    return true;
+}
+
+function attachKhatebFormValidation(formEl) {
+    if (!formEl) return;
+    const nameInput = formEl.querySelector('input[name="name"]');
+    const phoneInput = formEl.querySelector('input[name="phone"]');
+    if (nameInput) {
+        nameInput.addEventListener('input', () => validateKhatebNameField(nameInput));
+    }
+    if (phoneInput) {
+        phoneInput.addEventListener('input', () => validateKhatebPhoneField(phoneInput));
+    }
+    formEl.addEventListener('submit', (e) => {
+        let ok = true;
+        if (nameInput && !validateKhatebNameField(nameInput)) ok = false;
+        if (phoneInput && !validateKhatebPhoneField(phoneInput)) ok = false;
+        if (!ok) {
+            e.preventDefault();
+            formEl.reportValidity();
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.availability-mode-select').forEach(sel => {
+        syncAlternateVisibility(sel);
+        sel.addEventListener('change', () => syncAlternateVisibility(sel));
+    });
+    document.querySelectorAll('.extended-friday-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+            if (sel.value) {
+                addExtraUnavailableChip(sel.getAttribute('data-prefix'), sel.value);
+                sel.value = '';
+            }
+        });
+    });
+});
+</script>
+{% endmacro %}

@@ -14,9 +14,9 @@
 # ============================================================
 set -e
 
-APP_DIR="$HOME/mosqi"
-VENV="$HOME/.virtualenvs/mosqi"
-REPO="https://github.com/abdomakrt/mosqi.git"
+APP_DIR="$HOME/mosqiyUN"
+VENV="$HOME/.virtualenvs/mosqiyUN"
+REPO="https://github.com/abdomakrt/mosqiyUN.git"
 PAW_WSGI="/var/www/${USER}_pythonanywhere_com_wsgi.py"
 
 echo "============================================"
@@ -94,13 +94,12 @@ import os
 import sys
 
 sys.path.insert(0, os.getcwd())
-from app import app, db
-from migrate import run_migrations
+from app import app, db, ensure_schema
 
+ensure_schema()
 with app.app_context():
     db.create_all()
-run_migrations()
-print('    اكتمل الترحيل وإنشاء الجداول')
+print('    اكتملت تهيئة قاعدة البيانات والجداول')
 PYEOF
 
 # ---------- 7) ضبط ملف WSGI تلقائياً ----------
