@@ -439,6 +439,77 @@ class TestRequestedFeatures(unittest.TestCase):
         for m in mosques:
             self.assertIn(m.name, html_f2)
 
+    # 10. الخطيب بالتناوب (جمعة وجمعة) يحصل على أولوية أعلى للخطبة في جمعته المتاحة
+    def test_alternate_khateb_gets_higher_priority_than_always(self):
+        mosques, khatebs = self.create_mosques_and_khatebs(num_mosques=2, num_khatebs=4)
+        ctx = get_friday_selection_context()
+        target_friday = ctx['next_friday']
+
+        # جعل الخطيب الرابع بنظام التناوب (متاح في الجمعة القادمة)
+        alt_khateb = khatebs[3]
+        alt_khateb.availability_mode = 'alternate'
+        alt_khateb.alternate_offset = ctx['offset_next']
+        db.session.commit()
+
+        # التحقق من تفوق درجة الأولوية للخطيب بالتناوب مقارنة بالخطيب المتاح كل أسبوع
+        alt_score = self.engine.compute_urgency(alt_khateb, target_friday)
+        always_score = self.engine.compute_urgency(khatebs[0], target_friday)
+        self.assertGreater(alt_score, always_score)
+
+        # مع وجود 2 مسجد و 4 خطباء (2 احتياط)، يجب تعيين الخطيب بالتناوب في جمعته المتاحة
+        ok, msg, assignments, reserves = self.engine.distribute_for_week(target_friday)
+        self.assertTrue(ok)
+        assigned_ids = {a.khateb_id for a in assignments}
+        reserve_ids = {r.id for r in reserves}
+        self.assertIn(alt_khateb.id, assigned_ids)
+        self.assertNotIn(alt_khateb.id, reserve_ids)
+
+    # 11. الخطيب الذي اعتذر يحصل على أولوية أعلى في الجمعة التالية ثم تعود أولويته للوضع الطبيعي بعد أن يخطب
+    def test_apologized_khateb_gets_higher_priority_next_week(self):
+        mosques, khatebs = self.create_mosques_and_khatebs(num_mosques=2, num_khatebs=4)
+        f1 = self.engine.get_current_friday()
+        f2 = f1 + timedelta(days=7)
+        f3 = f2 + timedelta(days=7)
+
+        # توزيع الأسبوع الأول
+        ok1, _, a1, reserves1 = self.engine.distribute_for_week(f1)
+        self.assertTrue(ok1)
+
+        # خطيب من المعينين يعتذر في f1، بينما يوجد احتياط أيضاً لم يخطب في f1
+        apologizing_assign = a1[0]
+        apologized_k = db.session.get(Khateb, apologizing_assign.khateb_id)
+        reserve_k = reserves1[0]
+        self.engine.apologize_and_reassign(apologizing_assign.id)
+
+        # خطيب آخر اعتذر مسبقاً عن f1 عبر unavailable_dates
+        pre_apologized_k = reserves1[1]
+        pre_apologized_k.set_unavailable_dates([f1.strftime('%Y-%m-%d')])
+        db.session.commit()
+
+        # في f2: كلا المعتذرين (عن تكليف f1 أو المعتذر مسبقاً عن f1) يحصلان على درجة أعلى من الاحتياط العادي الذي ارتاح فقط
+        score_apologized = self.engine.compute_urgency(apologized_k, f2)
+        score_pre_apologized = self.engine.compute_urgency(pre_apologized_k, f2)
+        # نختبر مقارنة مباشرة مع خطيب لم يعتذر بنفس حالة الراحة (مثلاً خطيب لم يخطب في f1 دون اعتذار)
+        fresh_k = Khateb(name='الشيخ الاحتياطي المحايد', phone='0508887776', is_active=1, availability_mode='always')
+        fresh_k.set_password('123456')
+        db.session.add(fresh_k)
+        db.session.commit()
+        score_neutral_rested = self.engine.compute_urgency(fresh_k, f2)
+
+        self.assertGreater(score_apologized, score_neutral_rested)
+        self.assertGreater(score_pre_apologized, score_neutral_rested)
+
+        # عند توزيع f2 (يوجد مسجدان فقط مقابل 5 خطباء متاحين): يجب تعيين المعتذرين الاثنين على المسجدين!
+        ok2, _, a2, _ = self.engine.distribute_for_week(f2)
+        self.assertTrue(ok2)
+        assigned_f2 = {a.khateb_id for a in a2}
+        self.assertIn(apologized_k.id, assigned_f2)
+        self.assertIn(pre_apologized_k.id, assigned_f2)
+
+        # بعد أن خطبا في f2، تزول أولوية الاعتذار في f3 وتعود للحساب الطبيعي
+        self.assertFalse(self.engine.has_recent_uncompensated_apology(apologized_k, f3))
+        self.assertFalse(self.engine.has_recent_uncompensated_apology(pre_apologized_k, f3))
+
 
 if __name__ == '__main__':
     unittest.main()

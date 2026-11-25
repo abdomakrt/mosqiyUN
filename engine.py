@@ -12,8 +12,64 @@ from models import db, Mosque, Khateb, Assignment, WeeklySchedule
 class DistributionEngine:
     """محرك التوزيع الذكي للخطباء على المساجد"""
 
+    ALTERNATE_PRIORITY_BONUS = 20
+    APOLOGY_PRIORITY_BONUS = 20
+
     def __init__(self):
         pass
+
+    def has_recent_uncompensated_apology(self, khateb, target_date):
+        """
+        فحص هل لدى الخطيب اعتذار سابق (اعتذار عن تكليف أو غياب مسبق) قبل التاريخ المستهدف
+        ولم يخطب بعده حتى الآن، ليحصل على أولوية في جمعته القادمة.
+        """
+        if isinstance(target_date, str):
+            target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+        elif isinstance(target_date, datetime):
+            target_date = target_date.date()
+
+        last_apology = Assignment.query.filter(
+            Assignment.khateb_id == khateb.id,
+            Assignment.week_date < target_date,
+            Assignment.status == 'apologized'
+        ).order_by(Assignment.week_date.desc()).first()
+
+        latest_apology_date = last_apology.week_date if last_apology else None
+
+        for d_str in khateb.get_unavailable_dates():
+            try:
+                d_obj = datetime.strptime(d_str, '%Y-%m-%d').date()
+            except ValueError:
+                continue
+            if d_obj < target_date:
+                if latest_apology_date is None or d_obj > latest_apology_date:
+                    latest_apology_date = d_obj
+
+        if latest_apology_date is None:
+            return False
+
+        preached_after = Assignment.query.filter(
+            Assignment.khateb_id == khateb.id,
+            Assignment.week_date > latest_apology_date,
+            Assignment.week_date < target_date,
+            Assignment.status.in_(['confirmed', 'completed'])
+        ).first()
+
+        return preached_after is None
+
+    def compute_urgency(self, khateb, target_date, visited_count=0):
+        """
+        حساب درجة أولوية الخطيب للخطبة في جمعة محددة:
+        - الخطيب بالتناوب (جمعة يخطب وجمعة لا) يحصل على أولوية أعلى (+20)
+        - الخطيب الذي اعتذر سابقاً ولم يخطب بعد اعتذاره يحصل على أولوية أعلى (+20)
+        - أولوية قصوى لمن ارتاح مؤخراً (+ cr * 10) لمنع استمراره في الراحة
+        - خصم لمن خطب متتالياً (- cp * 3) ليتناوب مع غيره في أخذ الراحة
+        - موازنة تقدم الخطباء في الدورة (- visited_count)
+        """
+        cp, cr = self.compute_rest_stats(khateb.id, target_date)
+        alt_bonus = self.ALTERNATE_PRIORITY_BONUS if khateb.availability_mode == 'alternate' else 0
+        apology_bonus = self.APOLOGY_PRIORITY_BONUS if self.has_recent_uncompensated_apology(khateb, target_date) else 0
+        return (cr * 10) - (cp * 3) + alt_bonus + apology_bonus - visited_count
 
     @staticmethod
     def get_current_friday():
@@ -117,16 +173,10 @@ class DistributionEngine:
             )
             if unvisited:
                 candidate_map[khateb.id] = unvisited
-                cp, cr = self.compute_rest_stats(khateb.id, target_friday)
                 visited_set = set(khateb.get_visited_mosques_in_cycle(exclude_week_date=exclude_week_date))
                 allowed_ids = {m.id for m in khateb.get_allowed_mosques()}
                 visited_count = 0 if (allowed_ids and len(allowed_ids - visited_set) == 0) else len(visited_set)
-                # معادلة أولوية التناوب والعدالة:
-                # - أولوية قصوى لمن ارتاح مؤخراً (+ cr * 10) لمنع استمراره في الراحة
-                # - خصم لمن خطب متتالياً (- cp * 3) ليتناوب مع غيره في أخذ الراحة
-                # - موازنة تقدم الخطباء (- visited_count)
-                urgency = (cr * 10) - (cp * 3) - visited_count
-                urgency_map[khateb.id] = urgency
+                urgency_map[khateb.id] = self.compute_urgency(khateb, target_friday, visited_count=visited_count)
                 prev_mosque_map[khateb.id] = self.get_previous_week_mosque(khateb.id, target_friday)
 
         eligible_khatebs = [k for k in available_khatebs if k.id in candidate_map]
@@ -326,10 +376,9 @@ class DistributionEngine:
             ):
                 unvisited = self.get_unvisited_mosques_for_khateb(k, week_date, advance_cycle=False)
                 if mosque_id in unvisited:
-                    cp, cr = self.compute_rest_stats(k.id, week_date)
                     prev_mid = self.get_previous_week_mosque(k.id, week_date)
                     penalty = 50 if prev_mid == mosque_id else 0
-                    urgency = (cr * 10) - (cp * 3) - penalty
+                    urgency = self.compute_urgency(k, week_date) - penalty
                     candidates.append((urgency, k))
 
         if candidates:
