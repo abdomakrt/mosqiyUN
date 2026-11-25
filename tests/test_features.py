@@ -586,6 +586,21 @@ class TestRequestedFeatures(unittest.TestCase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    # 13. استعادة قاعدة بيانات تالفة عبر الواجهة لا تعطب السيرفر وتحفظ القاعدة الحالية
+    def test_backup_restore_rejects_corrupt_file_safely(self):
+        import io
+        self.create_mosques_and_khatebs(num_mosques=2, num_khatebs=2)
+        self.login_as_admin()
+
+        resp = self.client.post('/settings/backup/restore', data={
+            'backup_file': (io.BytesIO(b'not a sqlite database!'), 'bad.db')
+        }, content_type='multipart/form-data', follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('تالف أو ليس قاعدة بيانات SQLite صالحة', resp.get_data(as_text=True))
+        # القاعدة الحالية لم تتأثر
+        self.assertEqual(Mosque.query.count(), 2)
+        self.assertEqual(Khateb.query.count(), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

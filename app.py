@@ -847,34 +847,95 @@ def backup_download():
     backup_name = f"khutba_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
     return send_file(db_file, as_attachment=True, download_name=backup_name)
 
+def _copy_sqlite_inplace(src_path, dst_path):
+    """نسخ قاعدة بيانات SQLite إلى الملف الهدف باستخدام SQLite Backup API مع الحفاظ على inode الملف"""
+    import sqlite3
+    for suffix in ('-wal', '-shm', '-journal'):
+        sidecar = dst_path + suffix
+        if os.path.exists(sidecar):
+            try:
+                os.remove(sidecar)
+            except OSError:
+                pass
+    src_conn = sqlite3.connect(src_path)
+    try:
+        dst_conn = sqlite3.connect(dst_path)
+        try:
+            src_conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+    finally:
+        src_conn.close()
+
+
 @app.route('/settings/backup/restore', methods=['POST'])
 @admin_required
 def backup_restore():
-    """استعادة قاعدة البيانات من ملف مرفوع (مع دعم الترحيل التلقائي لقواعد البيانات القديمة)"""
+    """استعادة قاعدة البيانات من ملف مرفوع بأمان تام (مع الفحص والترحيل التلقائي)"""
+    import sqlite3
+
     file = request.files.get('backup_file')
-    if not file or not file.filename.endswith('.db'):
+    if not file or not file.filename or not file.filename.lower().endswith('.db'):
         flash('يرجى اختيار ملف قاعدة بيانات صالح بصيغة .db', 'danger')
         return redirect(url_for('settings'))
 
     db_file = os.path.join(INSTANCE_DIR, 'khutba_distribution.db')
-    # حفظ نسخة أمان قبل الاستعادة
-    safety_name = os.path.join(INSTANCE_DIR, f"pre_restore_safety_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
-    if not app.config.get('TESTING') and os.path.exists(db_file):
-        shutil.copy2(db_file, safety_name)
+    staging_db = os.path.join(INSTANCE_DIR, f"upload_staging_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.db")
 
-    db.session.remove()
-    db.engine.dispose()
-    file.save(db_file)
+    try:
+        file.save(staging_db)
 
-    migrated = migrate_legacy_sqlite_file(db_file)
-    ensure_schema(db_file)
-    db.create_all()
+        # 1. التحقق من سلامة ملف SQLite ووجود الجداول الأساسية قبل المساس بالقاعدة الحية
+        try:
+            check_conn = sqlite3.connect(staging_db)
+            integrity = check_conn.execute("PRAGMA integrity_check").fetchone()
+            tables = {
+                r[0] for r in check_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            check_conn.close()
+        except sqlite3.DatabaseError:
+            flash('الملف المرفوع تالف أو ليس قاعدة بيانات SQLite صالحة', 'danger')
+            return redirect(url_for('settings'))
 
-    if migrated:
-        flash('تمت استعادة قاعدة البيانات وترحيل البيانات القديمة (المساجد والخطباء والمساجد المزارة) للنظام الجديد بنجاح', 'success')
-    else:
-        flash('تمت استعادة قاعدة البيانات بنجاح', 'success')
-    return redirect(url_for('settings'))
+        if not integrity or integrity[0] != 'ok' or not {'mosque', 'khateb'}.issubset(tables):
+            flash('الملف المرفوع لا يحتوي على جداول النظام المطلوبة (mosque / khateb)', 'danger')
+            return redirect(url_for('settings'))
+
+        # 2. ترحيل وترقية النسخة في ملف مؤقت معزول أولاً
+        migrated = migrate_legacy_sqlite_file(staging_db)
+        ensure_schema(staging_db)
+
+        # 3. حفظ نسخة أمان من القاعدة الحالية عبر SQLite Backup API
+        if not app.config.get('TESTING') and os.path.exists(db_file):
+            safety_name = os.path.join(INSTANCE_DIR, f"pre_restore_safety_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+            _copy_sqlite_inplace(db_file, safety_name)
+
+        # 4. إغلاق اتصالات SQLAlchemy ثم النسخ الآمن داخل db_file مع الحفاظ على inode
+        db.session.remove()
+        db.engine.dispose()
+        _copy_sqlite_inplace(staging_db, db_file)
+
+        with app.app_context():
+            db.create_all()
+            db.session.remove()
+
+        if migrated:
+            flash('تمت استعادة قاعدة البيانات وترحيل البيانات القديمة (المساجد والخطباء والمساجد المزارة) للنظام الجديد بنجاح', 'success')
+        else:
+            flash('تمت استعادة قاعدة البيانات بنجاح', 'success')
+        return redirect(url_for('settings'))
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'تعذر استعادة قاعدة البيانات: {exc}', 'danger')
+        return redirect(url_for('settings'))
+    finally:
+        if os.path.exists(staging_db):
+            try:
+                os.remove(staging_db)
+            except OSError:
+                pass
 
 @app.route('/settings/admin/password', methods=['POST'])
 @admin_required
@@ -962,125 +1023,157 @@ def migrate_legacy_sqlite_file(db_file):
     if os.path.exists(temp_db):
         os.remove(temp_db)
 
-    temp_engine = create_engine(f"sqlite:///{temp_db}")
-    db.metadata.create_all(bind=temp_engine)
-    temp_engine.dispose()
+    try:
+        temp_engine = create_engine(f"sqlite:///{temp_db}")
+        db.metadata.create_all(bind=temp_engine)
+        temp_engine.dispose()
 
-    dst = sqlite3.connect(temp_db)
-    cur = dst.cursor()
+        dst = sqlite3.connect(temp_db)
+        cur = dst.cursor()
 
-    for m in mosques_rows:
-        m_dict = dict(m)
-        cur.execute(
-            "INSERT INTO mosque (id, name, address, capacity, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                m_dict['id'],
-                (m_dict.get('name') or '').strip(),
-                m_dict.get('address') or '',
-                m_dict.get('capacity') if m_dict.get('capacity') is not None else 0,
-                m_dict.get('notes') or '',
-                m_dict.get('created_at')
+        seen_mosque_names = set()
+        valid_mosque_ids = set()
+        for m in mosques_rows:
+            m_dict = dict(m)
+            m_name = (m_dict.get('name') or '').strip() or f"مسجد {m_dict['id']}"
+            if m_name in seen_mosque_names:
+                m_name = f"{m_name} ({m_dict['id']})"
+            seen_mosque_names.add(m_name)
+            valid_mosque_ids.add(m_dict['id'])
+            cur.execute(
+                "INSERT INTO mosque (id, name, address, capacity, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    m_dict['id'],
+                    m_name,
+                    m_dict.get('address') or '',
+                    m_dict.get('capacity') if m_dict.get('capacity') is not None else 0,
+                    m_dict.get('notes') or '',
+                    m_dict.get('created_at')
+                )
             )
-        )
 
-    for k in khatebs_rows:
-        k_dict = dict(k)
-        # تطبيع المساجد المزارة مسبقاً لتصبح في الدورة الأولى
-        visited_raw = k_dict.get('initial_visited_mosques') or k_dict.get('mosques_visited') or '[]'
-        try:
-            visited_ids = sorted(list(set(int(x) for x in json.loads(visited_raw))))
-        except Exception:
-            visited_ids = []
+        seen_phones = set()
+        valid_khateb_ids = set()
+        for k in khatebs_rows:
+            k_dict = dict(k)
+            visited_raw = k_dict.get('initial_visited_mosques') or k_dict.get('mosques_visited') or '[]'
+            try:
+                visited_ids = sorted(list(set(int(x) for x in json.loads(visited_raw))))
+            except Exception:
+                visited_ids = []
 
-        forbidden_raw = k_dict.get('forbidden_mosques') or '[]'
-        try:
-            forbidden_ids = sorted(list(set(int(x) for x in json.loads(forbidden_raw))))
-        except Exception:
-            forbidden_ids = []
+            forbidden_raw = k_dict.get('forbidden_mosques') or '[]'
+            try:
+                forbidden_ids = sorted(list(set(int(x) for x in json.loads(forbidden_raw))))
+            except Exception:
+                forbidden_ids = []
 
-        avail_mode = k_dict.get('availability_mode') or 'always'
-        if avail_mode not in ('always', 'alternate'):
-            avail_mode = 'always'
+            avail_mode = k_dict.get('availability_mode') or 'always'
+            if avail_mode not in ('always', 'alternate'):
+                avail_mode = 'always'
 
-        alt_offset = int(k_dict.get('alternate_offset') or 0) % 2
+            alt_offset = int(k_dict.get('alternate_offset') or 0) % 2
+            phone_val = normalize_phone(k_dict.get('phone') or '')
+            if not phone_val or phone_val in seen_phones:
+                phone_val = f"000000{k_dict['id']}"
+            seen_phones.add(phone_val)
+            valid_khateb_ids.add(k_dict['id'])
 
-        cur.execute(
-            """INSERT INTO khateb
-            (id, name, phone, password_hash, is_active, availability_mode, alternate_offset,
-             unavailable_dates, forbidden_mosques, initial_visited_mosques, current_cycle, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                k_dict['id'],
-                (k_dict.get('name') or '').strip(),
-                normalize_phone(k_dict.get('phone') or ''),
-                k_dict.get('password_hash') or '',
-                k_dict.get('is_active') if k_dict.get('is_active') is not None else 1,
-                avail_mode,
-                alt_offset,
-                k_dict.get('unavailable_dates') or '[]',
-                json.dumps(forbidden_ids),
-                json.dumps(visited_ids),
-                k_dict.get('current_cycle') or 1,
-                k_dict.get('created_at')
+            cur.execute(
+                """INSERT INTO khateb
+                (id, name, phone, password_hash, is_active, availability_mode, alternate_offset,
+                 unavailable_dates, forbidden_mosques, initial_visited_mosques, current_cycle, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    k_dict['id'],
+                    (k_dict.get('name') or '').strip() or f"خطيب {k_dict['id']}",
+                    phone_val,
+                    k_dict.get('password_hash') or '',
+                    k_dict.get('is_active') if k_dict.get('is_active') is not None else 1,
+                    avail_mode,
+                    alt_offset,
+                    k_dict.get('unavailable_dates') or '[]',
+                    json.dumps(forbidden_ids),
+                    json.dumps(visited_ids),
+                    k_dict.get('current_cycle') or 1,
+                    k_dict.get('created_at')
+                )
             )
-        )
 
-    for a in assign_rows:
-        a_dict = dict(a)
-        cur.execute(
-            """INSERT INTO assignment
-            (id, khateb_id, mosque_id, week_date, cycle_number, status, replacement_for_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                a_dict['id'],
-                a_dict['khateb_id'],
-                a_dict['mosque_id'],
-                a_dict['week_date'],
-                a_dict.get('cycle_number') or 1,
-                a_dict.get('status') or 'confirmed',
-                a_dict.get('replacement_for_id') or a_dict.get('replacement_of_id'),
-                a_dict.get('created_at')
+        seen_confirmed_kw = set()
+        seen_confirmed_mw = set()
+        for a in assign_rows:
+            a_dict = dict(a)
+            if a_dict['khateb_id'] not in valid_khateb_ids or a_dict['mosque_id'] not in valid_mosque_ids:
+                continue
+            status = a_dict.get('status') or 'confirmed'
+            w_date = str(a_dict['week_date'])
+            if status == 'confirmed':
+                if (a_dict['khateb_id'], w_date) in seen_confirmed_kw or (a_dict['mosque_id'], w_date) in seen_confirmed_mw:
+                    status = 'cancelled'
+                else:
+                    seen_confirmed_kw.add((a_dict['khateb_id'], w_date))
+                    seen_confirmed_mw.add((a_dict['mosque_id'], w_date))
+            cur.execute(
+                """INSERT INTO assignment
+                (id, khateb_id, mosque_id, week_date, cycle_number, status, replacement_for_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    a_dict['id'],
+                    a_dict['khateb_id'],
+                    a_dict['mosque_id'],
+                    a_dict['week_date'],
+                    a_dict.get('cycle_number') or 1,
+                    status,
+                    a_dict.get('replacement_for_id') or a_dict.get('replacement_of_id'),
+                    a_dict.get('created_at')
+                )
             )
-        )
 
-    for s in sched_rows:
-        s_dict = dict(s)
-        cur.execute(
-            """INSERT INTO weekly_schedule
-            (id, week_date, khateb_ids, reserve_khateb_ids, created_at)
-            VALUES (?, ?, ?, ?, ?)""",
-            (
-                s_dict['id'],
-                s_dict['week_date'],
-                s_dict.get('khateb_ids') or '[]',
-                s_dict.get('reserve_khateb_ids') or '[]',
-                s_dict.get('created_at')
+        for s in sched_rows:
+            s_dict = dict(s)
+            cur.execute(
+                """INSERT INTO weekly_schedule
+                (id, week_date, khateb_ids, reserve_khateb_ids, created_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (
+                    s_dict['id'],
+                    s_dict['week_date'],
+                    s_dict.get('khateb_ids') or '[]',
+                    s_dict.get('reserve_khateb_ids') or '[]',
+                    s_dict.get('created_at')
+                )
             )
-        )
 
-    has_skip = False
-    for st in setting_rows:
-        st_dict = dict(st)
-        key = st_dict.get('key', '')
-        if key.startswith('register_token_'):
-            continue
-        if key == 'skip_sample_data':
-            has_skip = True
-        cur.execute(
-            'INSERT OR REPLACE INTO app_setting ("key", value, updated_at) VALUES (?, ?, ?)',
-            (key, st_dict.get('value'), st_dict.get('updated_at'))
-        )
+        has_skip = False
+        for st in setting_rows:
+            st_dict = dict(st)
+            key = st_dict.get('key', '')
+            if not key or key.startswith('register_token_'):
+                continue
+            if key == 'skip_sample_data':
+                has_skip = True
+            cur.execute(
+                'INSERT OR REPLACE INTO app_setting ("key", value, updated_at) VALUES (?, ?, ?)',
+                (key, st_dict.get('value'), st_dict.get('updated_at'))
+            )
 
-    if not has_skip:
-        cur.execute(
-            'INSERT OR REPLACE INTO app_setting ("key", value, updated_at) VALUES (?, ?, ?)',
-            ('skip_sample_data', '1', datetime.utcnow().isoformat(sep=' '))
-        )
+        if not has_skip:
+            cur.execute(
+                'INSERT OR REPLACE INTO app_setting ("key", value, updated_at) VALUES (?, ?, ?)',
+                ('skip_sample_data', '1', datetime.utcnow().isoformat(sep=' '))
+            )
 
-    dst.commit()
-    dst.close()
-    os.replace(temp_db, db_file)
-    return True
+        dst.commit()
+        dst.close()
+        _copy_sqlite_inplace(temp_db, db_file)
+        return True
+    finally:
+        if os.path.exists(temp_db):
+            try:
+                os.remove(temp_db)
+            except OSError:
+                pass
 
 
 def ensure_schema(db_file=None):
