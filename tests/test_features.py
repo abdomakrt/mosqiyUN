@@ -510,6 +510,82 @@ class TestRequestedFeatures(unittest.TestCase):
         self.assertFalse(self.engine.has_recent_uncompensated_apology(apologized_k, f3))
         self.assertFalse(self.engine.has_recent_uncompensated_apology(pre_apologized_k, f3))
 
+    # 12. ترحيل قاعدة البيانات القديمة (التي تحتوي على mosques_visited وحقول الموضوع) إلى الهيكل الجديد
+    def test_migrate_legacy_sqlite_file(self):
+        import os
+        import sqlite3
+        import tempfile
+        from app import migrate_legacy_sqlite_file
+
+        fd, tmp_path = tempfile.mkstemp(suffix='.db')
+        os.close(fd)
+        try:
+            conn = sqlite3.connect(tmp_path)
+            conn.executescript("""
+                CREATE TABLE mosque (
+                    id INTEGER PRIMARY KEY, name VARCHAR(200) NOT NULL,
+                    address VARCHAR(500), capacity INTEGER, created_at DATETIME
+                );
+                CREATE TABLE khateb (
+                    id INTEGER PRIMARY KEY, name VARCHAR(200) NOT NULL,
+                    phone VARCHAR(20), current_topic VARCHAR(300),
+                    mosques_visited TEXT, availability_mode VARCHAR(20),
+                    alternate_offset INTEGER, forbidden_mosques TEXT,
+                    password_hash VARCHAR(255), is_active INTEGER, created_at DATETIME
+                );
+                CREATE TABLE assignment (
+                    id INTEGER PRIMARY KEY, khateb_id INTEGER NOT NULL,
+                    mosque_id INTEGER NOT NULL, week_date DATE NOT NULL,
+                    khutba_topic VARCHAR(300) NOT NULL, status VARCHAR(20),
+                    replacement_of_id INTEGER, created_at DATETIME
+                );
+                CREATE TABLE weekly_schedule (
+                    id INTEGER PRIMARY KEY, week_date DATE NOT NULL UNIQUE,
+                    khateb_ids TEXT, created_at DATETIME
+                );
+                CREATE TABLE app_setting (
+                    "key" VARCHAR(100) PRIMARY KEY, value TEXT, updated_at DATETIME
+                );
+                INSERT INTO mosque (id, name, address, capacity) VALUES (1, 'مسجد قديم ', 'الحي', NULL);
+                INSERT INTO mosque (id, name, address, capacity) VALUES (2, 'مسجد ثان', '', 100);
+                INSERT INTO khateb (id, name, phone, current_topic, mosques_visited, availability_mode, alternate_offset, forbidden_mosques, password_hash, is_active)
+                VALUES (7, 'الشيخ القديم', '01012345678', 'موضوع قديم', '[1]', 'alternate', 2, '[2]', 'hash123', 1);
+                INSERT INTO app_setting ("key", value) VALUES ('admin_password_hash', 'admin-hash-legacy');
+                INSERT INTO app_setting ("key", value) VALUES ('register_token_abc', 'ignored');
+            """)
+            conn.commit()
+            conn.close()
+
+            migrated = migrate_legacy_sqlite_file(tmp_path)
+            self.assertTrue(migrated)
+
+            check = sqlite3.connect(tmp_path)
+            check.row_factory = sqlite3.Row
+            m1 = dict(check.execute("SELECT * FROM mosque WHERE id=1").fetchone())
+            self.assertEqual(m1['name'], 'مسجد قديم')
+            self.assertEqual(m1['capacity'], 0)
+
+            k7 = dict(check.execute("SELECT * FROM khateb WHERE id=7").fetchone())
+            self.assertEqual(k7['initial_visited_mosques'], '[1]')
+            self.assertEqual(k7['alternate_offset'], 0)
+            self.assertEqual(k7['forbidden_mosques'], '[2]')
+            self.assertEqual(k7['current_cycle'], 1)
+            self.assertNotIn('mosques_visited', k7)
+            self.assertNotIn('current_topic', k7)
+
+            assign_cols = [r[1] for r in check.execute("PRAGMA table_info(assignment)").fetchall()]
+            self.assertNotIn('khutba_topic', assign_cols)
+            self.assertIn('cycle_number', assign_cols)
+
+            admin_pw = check.execute("SELECT value FROM app_setting WHERE key='admin_password_hash'").fetchone()
+            self.assertEqual(admin_pw[0], 'admin-hash-legacy')
+            tok = check.execute("SELECT value FROM app_setting WHERE key='register_token_abc'").fetchone()
+            self.assertIsNone(tok)
+            check.close()
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
 
 if __name__ == '__main__':
     unittest.main()

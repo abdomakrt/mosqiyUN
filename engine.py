@@ -5,6 +5,7 @@
 """
 import json
 import random
+from collections import deque
 from datetime import date, datetime, timedelta
 from models import db, Mosque, Khateb, Assignment, WeeklySchedule
 
@@ -157,7 +158,10 @@ class DistributionEngine:
 
     def _solve_week(self, target_friday, available_khatebs, mosques, exclude_week_date=None, advance_cycle=True):
         """
-        حل مسألة مطابقة الخطباء المتاحين مع المساجد لجمعة محددة باستخدام خوارزمية التراجع مع التقليم.
+        حل مسألة مطابقة الخطباء المتاحين مع المساجد لجمعة محددة بأمثلية تامة (Min-Cost Max-Flow):
+        1. تعظيم عدد المساجد المغطاة إلى أقصى حد ممكن رياضياً.
+        2. تعظيم مجموع درجات أولوية الخطباء المعينين (التناوب، الاعتذار، الراحة).
+        3. تجنب تكرار مسجد الأسبوع الماضي (-50).
         يرجع: (best_assignment_dict, eligible_khatebs)
         """
         candidate_map = {}
@@ -183,75 +187,91 @@ class DistributionEngine:
         if not eligible_khatebs:
             return {}, []
 
-        # ترتيب الخطباء حسب الأولوية العظمى للخطبة، ثم الأقل خيارات (MRV: Minimum Remaining Values)
-        sorted_khatebs = sorted(
-            eligible_khatebs,
-            key=lambda k: (-urgency_map[k.id], len(candidate_map[k.id]))
-        )
+        mosque_ids_set = {m.id for m in mosques}
+        union_mosques = sorted({
+            mid for mids in candidate_map.values() for mid in mids if mid in mosque_ids_set
+        })
+        if not union_mosques:
+            return {}, eligible_khatebs
 
-        union_mosques = set()
-        for mids in candidate_map.values():
-            union_mosques.update(mids)
+        num_k = len(eligible_khatebs)
+        num_m = len(union_mosques)
+        src = 0
+        snk = num_k + num_m + 1
+        total_nodes = snk + 1
+
+        mosque_to_node = {mid: (num_k + 1 + j) for j, mid in enumerate(union_mosques)}
+        adj = [[] for _ in range(total_nodes)]
+
+        def add_edge(u, v, cap, cost):
+            adj[u].append([v, cap, cost, len(adj[v])])
+            adj[v].append([u, 0, -cost, len(adj[u]) - 1])
+
+        scale = 1000
+        match_bonus = 1_000_000 * scale
+
+        for i, k in enumerate(eligible_khatebs):
+            k_node = 1 + i
+            add_edge(src, k_node, 1, 0)
+            prev_mid = prev_mosque_map.get(k.id)
+            for mid in candidate_map[k.id]:
+                m_node = mosque_to_node.get(mid)
+                if m_node is None:
+                    continue
+                penalty = 50 if mid == prev_mid else 0
+                jitter = random.randint(0, 99)
+                cost = -match_bonus - (urgency_map[k.id] - penalty) * scale + jitter
+                add_edge(k_node, m_node, 1, cost)
+
+        for mid, m_node in mosque_to_node.items():
+            add_edge(m_node, snk, 1, 0)
+
+        inf = 10**18
+        while True:
+            dist = [inf] * total_nodes
+            parent_u = [-1] * total_nodes
+            parent_e = [-1] * total_nodes
+            in_queue = [False] * total_nodes
+
+            dist[src] = 0
+            q = deque([src])
+            in_queue[src] = True
+
+            while q:
+                u = q.popleft()
+                in_queue[u] = False
+                du = dist[u]
+                for idx, edge in enumerate(adj[u]):
+                    v, cap, cost, _ = edge
+                    if cap > 0 and du + cost < dist[v]:
+                        dist[v] = du + cost
+                        parent_u[v] = u
+                        parent_e[v] = idx
+                        if not in_queue[v]:
+                            q.append(v)
+                            in_queue[v] = True
+
+            if dist[snk] >= 0:
+                break
+
+            curr = snk
+            while curr != src:
+                pu = parent_u[curr]
+                pe = parent_e[curr]
+                edge = adj[pu][pe]
+                edge[1] -= 1
+                adj[curr][edge[3]][1] += 1
+                curr = pu
 
         best_assignment = {}
-        best_score = [-1, -999999]
-        target_count = min(len(sorted_khatebs), len(mosques), len(union_mosques))
-        steps = [0]
-        max_steps = 100000
+        for i, k in enumerate(eligible_khatebs):
+            k_node = 1 + i
+            for edge in adj[k_node]:
+                v, cap, _, _ = edge
+                if (num_k + 1) <= v <= (num_k + num_m) and cap == 0:
+                    best_assignment[k.id] = union_mosques[v - (num_k + 1)]
+                    break
 
-        def calculate_score(curr_assign):
-            tot_urgency = sum(urgency_map.get(kid, 0) for kid in curr_assign)
-            penalties = 0
-            for kid, mid in curr_assign.items():
-                if mid == prev_mosque_map.get(kid):
-                    penalties += 50
-            return [len(curr_assign), tot_urgency - penalties]
-
-        def backtrack(index, current_assignment, used_mosques):
-            steps[0] += 1
-            if steps[0] > max_steps:
-                return False
-
-            score = calculate_score(current_assignment)
-            if score[0] > best_score[0] or (score[0] == best_score[0] and score[1] > best_score[1]):
-                best_score[0] = score[0]
-                best_score[1] = score[1]
-                best_assignment.clear()
-                best_assignment.update(current_assignment)
-                if len(best_assignment) == target_count:
-                    return True
-
-            if index >= len(sorted_khatebs):
-                return False
-
-            # تقليم الفروع التي لا يمكن أن تتجاوز أفضل حل حالي (Branch and Bound)
-            remaining_khatebs = len(sorted_khatebs) - index
-            remaining_mosques = len(union_mosques) - len(used_mosques)
-            if len(current_assignment) + min(remaining_khatebs, remaining_mosques) < best_score[0]:
-                return False
-
-            k = sorted_khatebs[index]
-            options = [mid for mid in candidate_map[k.id] if mid not in used_mosques]
-
-            # ترتيب الخيارات بحيث نفضل المساجد التي لم يخطب فيها الجمعة الماضية
-            prev_mid = prev_mosque_map.get(k.id)
-            options.sort(key=lambda mid: (1 if mid == prev_mid else 0, random.random()))
-
-            for mid in options:
-                current_assignment[k.id] = mid
-                used_mosques.add(mid)
-                if backtrack(index + 1, current_assignment, used_mosques):
-                    return True
-                del current_assignment[k.id]
-                used_mosques.remove(mid)
-
-            # تجربة تخطي الخطيب الحالي لصالح خطيب آخر إذا لم تكن هناك خيارات كافية
-            if backtrack(index + 1, current_assignment, used_mosques):
-                return True
-
-            return False
-
-        backtrack(0, {}, set())
         return best_assignment, eligible_khatebs
 
     def distribute_for_week(self, target_friday):
