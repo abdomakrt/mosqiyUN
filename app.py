@@ -540,6 +540,24 @@ def get_week_schedule_data(target_date):
     return assignments, apologized_assignments, reserve_khatebs, sched
 
 
+def get_unassigned_mosques(assignments, apologized_assignments, sched):
+    """إرجاع المساجد التي لم يُعيَّن لها خطيب مؤكد في جمعة موزّعة (بما فيها التي اعتذر خطيبها دون بديل)"""
+    if not (assignments or apologized_assignments or sched):
+        return []
+    confirmed_mosque_ids = {a.mosque_id for a in assignments if a.status == 'confirmed'}
+    uncovered_apologized_ids = {
+        a.mosque_id for a in apologized_assignments if a.mosque_id not in confirmed_mosque_ids
+    }
+    unassigned = []
+    for m in Mosque.query.order_by(Mosque.id.asc()).all():
+        if m.id not in confirmed_mosque_ids:
+            unassigned.append({
+                'mosque': m,
+                'reason': 'اعتذر خطيبه ولم يتوفر بديل' if m.id in uncovered_apologized_ids else 'لم يتوفر خطيب متاح للتوزيع'
+            })
+    return unassigned
+
+
 def get_schedule_summaries(selected_date=None):
     """جلب ملخص جميع التوزيعات المنشأة للعرض والفلترة"""
     all_schedules = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).all()
@@ -575,6 +593,7 @@ def distribution():
         target_date = engine.get_current_friday()
 
     assignments, apologized_assignments, reserve_khatebs, sched = get_week_schedule_data(target_date)
+    unassigned_mosques = get_unassigned_mosques(assignments, apologized_assignments, sched)
 
     # نص الواتساب الجاهز للنسخ
     wa_lines = [
@@ -589,6 +608,11 @@ def distribution():
             wa_lines.append(f"{i}. *{a.mosque.name}* ⬅️ الشيخ {a.khateb.name}{status_tag}")
     else:
         wa_lines.append("لم يتم التوزيع لهذه الجمعة بعد.")
+
+    if unassigned_mosques:
+        wa_lines.append("\n⚠️ *مساجد لم يتوفر لها خطباء (بحاجة لمعالجة):*")
+        for item in unassigned_mosques:
+            wa_lines.append(f"🔸 {item['mosque'].name} ({item['reason']})")
 
     if reserve_khatebs:
         wa_lines.append("\n📋 *جدول الخطباء الاحتياطي:*")
@@ -610,6 +634,7 @@ def distribution():
         target_date=target_date,
         assignments=assignments,
         apologized_assignments=apologized_assignments,
+        unassigned_mosques=unassigned_mosques,
         has_distribution=bool(assignments or apologized_assignments or sched),
         reserve_khatebs=reserve_khatebs,
         whatsapp_text=whatsapp_text,
@@ -725,7 +750,8 @@ def my_portal():
             latest_sched = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).first()
             selected_week_date = latest_sched.week_date if latest_sched else engine.get_current_friday()
 
-    week_assignments, _, week_reserves, week_sched = get_week_schedule_data(selected_week_date)
+    week_assignments, week_apologized, week_reserves, week_sched = get_week_schedule_data(selected_week_date)
+    week_unassigned_mosques = get_unassigned_mosques(week_assignments, week_apologized, week_sched)
     _, schedule_items = get_schedule_summaries(selected_date=selected_week_date)
 
     # إحصائيات الدورة الحالية
@@ -744,7 +770,8 @@ def my_portal():
         selected_week_date=selected_week_date,
         week_assignments=week_assignments,
         week_reserves=week_reserves,
-        week_has_schedule=bool(week_assignments or week_sched),
+        week_unassigned_mosques=week_unassigned_mosques,
+        week_has_schedule=bool(week_assignments or week_apologized or week_sched),
         schedule_items=schedule_items,
         total_allowed=total_allowed,
         visited_count=visited_count,

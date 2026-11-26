@@ -63,13 +63,6 @@
                         {% endif %}
                     </div>
 
-                    <!-- زر الاعتذار -->
-                    <form method="POST" action="{{ url_for('my_apologize', assignment_id=upcoming.id) }}" onsubmit="return confirm('هل ترغب بالتأكيد في تقديم اعتذار عن هذه الجمعة؟ سيقوم النظام بالبحث عن بديل فوراً.');">
-                        <button type="submit" class="btn btn-outline-danger w-100 py-2 fw-bold btn-touch-mobile">
-                            <i class="fa-solid fa-user-xmark me-2"></i> اعتذار عن خطبة هذه الجمعة
-                        </button>
-                    </form>
-
                     {% elif upcoming.status == 'apologized' %}
                     <div class="p-3 p-md-4 bg-danger-subtle text-danger rounded-3 border border-danger-subtle text-center mb-3">
                         <i class="fa-solid fa-circle-exclamation fa-2x mb-2"></i>
@@ -92,6 +85,37 @@
                     <p class="small mb-0">أنت مسجل حالياً ضمن <strong>جدول الاحتياط</strong>، وستكون لك الأولوية القصوى في التوزيع للجمعة القادمة أو في حال اعتذار أحد الخطباء.</p>
                 </div>
                 {% endif %}
+            </div>
+        </div>
+
+        <!-- رسالة ثابتة عن شرف المنبر والدعوة إلى الله -->
+        <div class="card mb-3 mb-md-4 border-success border-start border-4 shadow-sm" id="dawahReminderCard">
+            <div class="card-body p-3 p-md-4">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-1">
+                        <i class="fa-solid fa-book-quran me-1"></i> شرف المنبر والدعوة إلى الله
+                    </span>
+                </div>
+                <p class="mb-2 text-dark fw-semibold small lh-lg">
+                    أخي الخطيب المبارك، إن وقوفك على المنبر للدعوة إلى الله شرفٌ عظيم واصطفاءٌ رباني لحمل أمانة البلاغ وتوجيه القلوب إلى الخير.
+                </p>
+                <div class="p-3 rounded-3 bg-light border mb-2 small lh-lg">
+                    <div class="mb-2 text-success fw-bold">
+                        قال الله تعالى: ﴿وَمَنْ أَحْسَنُ قَوْلًا مِّمَّن دَعَا إِلَى اللَّهِ وَعَمِلَ صَالِحًا وَقَالَ إِنَّنِي مِنَ الْمُسْلِمِينَ﴾
+                        <span class="text-muted fw-normal">[فصلت: 33]</span>
+                    </div>
+                    <div class="mb-2 text-dark fw-semibold">
+                        وقال سبحانه: ﴿ادْعُ إِلَىٰ سَبِيلِ رَبِّكَ بِالْحِكْمَةِ وَالْمَوْعِظَةِ الْحَسَنَةِ﴾
+                        <span class="text-muted fw-normal">[النحل: 125]</span>
+                    </div>
+                    <div class="text-primary fw-semibold mb-0">
+                        وقال رسول الله ﷺ: «فَوَاللَّهِ لَأَنْ يَهْدِيَ اللَّهُ بِكَ رَجُلًا وَاحِدًا، خَيْرٌ لَكَ مِنْ حُمْرِ النَّعَمِ»
+                        <span class="text-muted fw-normal">[متفق عليه]</span>
+                    </div>
+                </div>
+                <p class="mb-0 text-muted small">
+                    احتسب خطبتك خالصةً لوجه الله، واجتهد في نفع المصلين فالكلمة الطيبة قد يهدي الله بها قلوباً ويجري بها أجرُك إلى يوم القيامة.
+                </p>
             </div>
         </div>
 
@@ -228,6 +252,23 @@
                     {% endfor %}
                 </div>
 
+                {% if week_unassigned_mosques %}
+                <div class="p-3 bg-danger-subtle border-top border-danger border-opacity-25">
+                    <div class="fw-bold small text-danger mb-2">
+                        <i class="fa-solid fa-triangle-exclamation me-1"></i>
+                        مساجد لم يتوفر لها خطباء لهذه الجمعة ({{ week_unassigned_mosques|length }}):
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for item in week_unassigned_mosques %}
+                        <span class="badge bg-white text-danger border border-danger px-3 py-2 text-wrap text-start">
+                            <i class="fa-solid fa-mosque me-1"></i> {{ item.mosque.name }}
+                            <span class="text-muted fw-normal">({{ item.reason }})</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
                 {% if week_reserves %}
                 <div class="p-3 bg-light border-top">
                     <div class="fw-bold small text-dark mb-2">
@@ -295,6 +336,65 @@
                 </div>
             </div>
         </div>
+
+        {% if upcoming and upcoming.status == 'confirmed' %}
+        <!-- زر الاعتذار في أسفل الصفحة -->
+        <div class="card mb-4 border-danger border-opacity-25 shadow-sm" id="apologizeBottomSection">
+            <div class="card-body p-3 d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                <div class="small text-muted">
+                    <i class="fa-solid fa-circle-info text-danger me-1"></i>
+                    في حال وجود ظرف قاهر يمنعك من خطبة جمعة {{ upcoming.week_date.strftime('%Y-%m-%d') }}:
+                </div>
+                <button type="button" class="btn btn-outline-danger fw-bold btn-touch-mobile text-nowrap" data-bs-toggle="modal" data-bs-target="#apologizeConfirmModal">
+                    <i class="fa-solid fa-user-xmark me-2"></i> اعتذار عن خطبة هذه الجمعة
+                </button>
+            </div>
+        </div>
+
+        <!-- نافذة تثبيت وتحذير قبل الاعتذار -->
+        <div class="modal fade" id="apologizeConfirmModal" tabindex="-1" aria-labelledby="apologizeConfirmModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow">
+                    <div class="modal-header bg-warning-subtle border-0">
+                        <h5 class="modal-title fw-bold text-dark" id="apologizeConfirmModalLabel">
+                            <i class="fa-solid fa-hand-holding-heart text-danger me-2"></i> تثبيت وتذكير قبل الاعتذار
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+                    </div>
+                    <div class="modal-body p-4 lh-lg">
+                        <p class="fw-bold text-dark mb-2">
+                            أخي الخطيب، تمهّل واحتسب قبل أن تعتذر!
+                        </p>
+                        <p class="text-secondary small mb-3">
+                            إن هذا المنبر وهذه الخطبة عملٌ عظيم اصطفاك الله له واختارك لتكون سفيراً للدعوة إليه في بيته يوم الجمعة؛ فلا تتولَّ عن هذا الفضل العظيم الذي اصطفاك الله به إلا لعذرٍ قاهرٍ لا حيلة لك فيه.
+                        </p>
+                        <div class="alert alert-warning border-warning-subtle small mb-3">
+                            <div class="fw-bold text-dark mb-1">
+                                ﴿وَمَن يَتَوَلَّ فَإِنَّ اللَّهَ هُوَ الْغَنِيُّ الْحَمِيدُ﴾
+                            </div>
+                            <div class="text-muted">
+                                «لَأَنْ يَهْدِيَ اللَّهُ بِكَ رَجُلًا وَاحِدًا خَيْرٌ لَكَ مِنْ حُمْرِ النَّعَمِ» — فجدِّد النية واستعن بالله ولا تحرم نفسك هذا الأجر العظيم.
+                            </div>
+                        </div>
+                        <div class="p-2 px-3 bg-light rounded-3 border small text-muted">
+                            <i class="fa-solid fa-mosque text-success me-1"></i>
+                            <strong>التكليف الحالي:</strong> {{ upcoming.mosque.name }} • الجمعة {{ upcoming.week_date.strftime('%Y-%m-%d') }}
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 pt-0 px-4 pb-4 d-flex flex-column-reverse flex-sm-row gap-2 justify-content-between">
+                        <form method="POST" action="{{ url_for('my_apologize', assignment_id=upcoming.id) }}" class="w-100 w-sm-auto m-0">
+                            <button type="submit" class="btn btn-outline-danger w-100 fw-bold btn-touch-mobile">
+                                <i class="fa-solid fa-user-xmark me-1"></i> مصمم على الاعتذار
+                            </button>
+                        </form>
+                        <button type="button" class="btn btn-success w-100 w-sm-auto px-4 fw-bold btn-touch-mobile" data-bs-dismiss="modal">
+                            <i class="fa-solid fa-check-double me-1"></i> استعنت بالله
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
     </div>
 </div>

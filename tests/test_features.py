@@ -601,6 +601,52 @@ class TestRequestedFeatures(unittest.TestCase):
         self.assertEqual(Mosque.query.count(), 2)
         self.assertEqual(Khateb.query.count(), 2)
 
+    # 14. رسالة الدعوة الثابتة وزر الاعتذار في أسفل بوابة الخطيب مع نافذة التثبيت
+    def test_khateeb_portal_dawah_banner_and_bottom_apology_modal(self):
+        mosques, khatebs = self.create_mosques_and_khatebs(num_mosques=2, num_khatebs=2)
+        friday = self.engine.get_current_friday()
+        ok, _, _, _ = self.engine.distribute_for_week(friday)
+        self.assertTrue(ok)
+
+        self.login_as_khateb(khatebs[0])
+        resp = self.client.get('/my')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+
+        # الرسالة الثابتة عن شرف الدعوة إلى الله والآيات والحديث
+        self.assertIn('dawahReminderCard', html)
+        self.assertIn('وَمَنْ أَحْسَنُ قَوْلًا', html)
+        self.assertIn('لَأَنْ يَهْدِيَ اللَّهُ بِكَ رَجُلًا وَاحِدًا', html)
+
+        # زر الاعتذار في أسفل الصفحة (بعد بطاقة تقدم الدورة) ومعه نافذة التثبيت بالخيارين
+        self.assertIn('apologizeBottomSection', html)
+        self.assertIn('apologizeConfirmModal', html)
+        self.assertIn('مصمم على الاعتذار', html)
+        self.assertIn('استعنت بالله', html)
+        self.assertGreater(html.index('apologizeBottomSection'), html.index('تقدم الدورة الحالية'))
+
+    # 15. عرض المساجد التي لم يتوفر لها خطباء أسفل جدول التوزيع
+    def test_unassigned_mosques_shown_below_distribution_when_shortage(self):
+        mosques, khatebs = self.create_mosques_and_khatebs(num_mosques=4, num_khatebs=2)
+        friday = self.engine.get_current_friday()
+        ok, _, assignments, _ = self.engine.distribute_for_week(friday)
+        self.assertTrue(ok)
+        self.assertEqual(len(assignments), 2)
+
+        assigned_mosque_ids = {a.mosque_id for a in assignments}
+        unassigned_names = [m.name for m in mosques if m.id not in assigned_mosque_ids]
+        self.assertEqual(len(unassigned_names), 2)
+
+        self.login_as_admin()
+        dist_html = self.client.get(f'/distribution?date={friday.strftime("%Y-%m-%d")}').get_data(as_text=True)
+        self.assertIn('unassignedMosquesCard', dist_html)
+        card_part = dist_html.split('unassignedMosquesCard')[1].split('جدول الخطباء الاحتياطي')[0]
+        for name in unassigned_names:
+            self.assertIn(name, card_part)
+        for m in mosques:
+            if m.id in assigned_mosque_ids:
+                self.assertNotIn(m.name, card_part)
+
 
 if __name__ == '__main__':
     unittest.main()
