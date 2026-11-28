@@ -61,6 +61,8 @@ class Khateb(db.Model):
     forbidden_mosques = db.Column(db.Text, default='[]')  # JSON: معرفات المساجد المستثناة
     initial_visited_mosques = db.Column(db.Text, default='[]')  # JSON: مساجد زارها قبل التسجيل تُحسب في الدورة الأولى
     current_cycle = db.Column(db.Integer, default=1)  # رقم الدورة الحالية (يبدأ من 1)
+    cycle_topic = db.Column(db.String(200), default='')  # اسم موضوع الخطبة للدورة الحالية (اختياري)
+    cycle_topic_number = db.Column(db.Integer, nullable=True)  # رقم الدورة المرتبطة بالموضوع
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     assignments = db.relationship('Assignment', backref='khateb', cascade='all, delete-orphan', lazy=True)
@@ -138,6 +140,32 @@ class Khateb(db.Model):
         all_mosques = Mosque.query.all()
         return [m for m in all_mosques if m.id not in forbidden]
 
+    def get_active_cycle_topic(self, cycle=None):
+        """إرجاع اسم موضوع الخطبة إذا كان مضبوطاً للدورة المطلوبة"""
+        c = cycle if cycle is not None else self.current_cycle
+        topic = (self.cycle_topic or '').strip()
+        if topic and self.cycle_topic_number == c:
+            return topic
+        return ''
+
+    def set_cycle_topic(self, topic_text):
+        """ضبط أو مسح اسم موضوع الخطبة للدورة الحالية للخطيب"""
+        cleaned = ' '.join((topic_text or '').split())
+        if cleaned:
+            self.cycle_topic = cleaned[:200]
+            self.cycle_topic_number = self.current_cycle
+        else:
+            self.cycle_topic = ''
+            self.cycle_topic_number = None
+
+    def get_cycle_label(self, cycle=None):
+        """تسمية الدورة الحالية أو التاريخية مع اسم الموضوع إن وُجد"""
+        c = cycle if cycle is not None else self.current_cycle
+        topic = self.get_active_cycle_topic(cycle=c)
+        if topic:
+            return f"الدورة {c}: {topic}"
+        return f"الدورة {c}"
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -150,6 +178,8 @@ class Khateb(db.Model):
             'initial_visited_mosques': self.get_initial_visited_mosques(),
             'unavailable_dates': self.get_unavailable_dates(),
             'current_cycle': self.current_cycle,
+            'cycle_topic': self.get_active_cycle_topic(),
+            'cycle_label': self.get_cycle_label(),
             'visited_mosques': self.get_visited_mosques_in_cycle()
         }
 

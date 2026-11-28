@@ -647,6 +647,98 @@ class TestRequestedFeatures(unittest.TestCase):
             if m.id in assigned_mosque_ids:
                 self.assertNotIn(m.name, card_part)
 
+    # 16. تسمية الدورة بموضوع الخطبة والعودة التلقائية للتسمية الرقمية بعد انتهاء الدورة
+    def test_cycle_topic_label_and_auto_reset_on_next_cycle(self):
+        mosques, khatebs = self.create_mosques_and_khatebs(num_mosques=2, num_khatebs=2)
+        k1, k2 = khatebs
+
+        # المدير يضبط موضوع الدورة للخطيب الأول من نموذج التعديل
+        self.login_as_admin()
+        resp_edit = self.client.post(f'/khateb/{k1.id}/edit', data={
+            'name': k1.name,
+            'phone': k1.phone,
+            'availability_mode': 'always',
+            'cycle_topic': 'بر الوالدين',
+        }, follow_redirects=True)
+        self.assertEqual(resp_edit.status_code, 200)
+
+        # الخطيب الثاني يضبط موضوع دورته من صفحته الشخصية (/my/profile)
+        self.login_as_khateb(k2)
+        resp_prof = self.client.post('/my/profile', data={
+            'availability_mode': 'always',
+            'cycle_topic': 'الصدق والأمانة',
+        }, follow_redirects=True)
+        self.assertEqual(resp_prof.status_code, 200)
+
+        f1 = self.engine.get_current_friday()
+        f2 = f1 + timedelta(days=7)
+        f3 = f2 + timedelta(days=7)
+
+        # الأسبوع الأول والثاني (الدورة 1)
+        ok1, _, _, _ = self.engine.distribute_for_week(f1)
+        ok2, _, _, _ = self.engine.distribute_for_week(f2)
+        self.assertTrue(ok1 and ok2)
+
+        k1_db = db.session.get(Khateb, k1.id)
+        k2_db = db.session.get(Khateb, k2.id)
+        self.assertEqual(k1_db.get_cycle_label(), 'الدورة 1: بر الوالدين')
+        self.assertEqual(k2_db.get_cycle_label(), 'الدورة 1: الصدق والأمانة')
+
+        # التحقق من الظهور في /khutbas و /distribution دون التأثير على نص الواتساب
+        self.login_as_admin()
+        khutbas_html = self.client.get('/khutbas').get_data(as_text=True)
+        self.assertIn('الدورة 1: بر الوالدين', khutbas_html)
+        self.assertIn('الدورة 1: الصدق والأمانة', khutbas_html)
+
+        dist_html = self.client.get(f'/distribution?date={f1.strftime("%Y-%m-%d")}').get_data(as_text=True)
+        self.assertIn('الدورة 1: بر الوالدين', dist_html)
+        wa_part = dist_html.split('id="whatsappPayload"')[1].split('</textarea>')[0]
+        self.assertNotIn('بر الوالدين', wa_part)
+        self.assertNotIn('الصدق والأمانة', wa_part)
+
+        # الأسبوع الثالث: ينتقل الخطيبان تلقائياً للدورة 2 ويعود المسمى التلقائي (الدورة 2)
+        ok3, _, a3, _ = self.engine.distribute_for_week(f3)
+        self.assertTrue(ok3)
+        self.assertEqual(len(a3), 2)
+
+        k1_db = db.session.get(Khateb, k1.id)
+        self.assertEqual(k1_db.current_cycle, 2)
+        self.assertEqual(k1_db.get_active_cycle_topic(), '')
+        self.assertEqual(k1_db.get_cycle_label(), 'الدورة 2')
+
+        self.login_as_khateb(k1_db)
+        my_html = self.client.get('/my').get_data(as_text=True)
+        self.assertIn('الدورة 2', my_html)
+        self.assertNotIn('الدورة 2: بر الوالدين', my_html)
+
+    # 17. زر نسخ جدول التوزيع للواتساب في بوابة الخطيب (/my)
+    def test_khateeb_portal_whatsapp_copy_button_and_payload(self):
+        mosques, khatebs = self.create_mosques_and_khatebs(num_mosques=2, num_khatebs=3)
+        friday = self.engine.get_current_friday()
+        ok, _, assignments, reserves = self.engine.distribute_for_week(friday)
+        self.assertTrue(ok)
+        self.assertEqual(len(reserves), 1)
+
+        assigned_khateb = db.session.get(Khateb, assignments[0].khateb_id)
+        self.login_as_khateb(assigned_khateb)
+
+        my_html = self.client.get('/my').get_data(as_text=True)
+        self.assertIn('myCopyWhatsAppBtn', my_html)
+        self.assertIn('نسخ للواتساب', my_html)
+        self.assertIn('id="whatsappPayload"', my_html)
+        wa_part = my_html.split('id="whatsappPayload"')[1].split('</textarea>')[0]
+        self.assertIn(mosques[0].name, wa_part)
+        self.assertIn(mosques[1].name, wa_part)
+        self.assertIn(reserves[0].name, wa_part)
+
+        # بعد اعتذار الخطيب، يظل الجدول المحدث قابلاً للنسخ من بوابته
+        resp_ap = self.client.post(f'/my/apologize/{assignments[0].id}', follow_redirects=True)
+        self.assertEqual(resp_ap.status_code, 200)
+        my_after = resp_ap.get_data(as_text=True)
+        self.assertIn('myCopyWhatsAppBtn', my_after)
+        wa_after = my_after.split('id="whatsappPayload"')[1].split('</textarea>')[0]
+        self.assertIn(reserves[0].name, wa_after)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -138,7 +138,7 @@
                 </thead>
                 <tbody>
                     {% for k in khatebs %}
-                    <tr class="khateb-filter-item" data-search="{{ k.name|lower }} {{ k.phone }}" data-active="{{ 'active' if k.is_active == 1 else 'inactive' }}">
+                    <tr class="khateb-filter-item" data-search="{{ k.name|lower }} {{ k.phone }} {{ k.get_active_cycle_topic()|lower }}" data-active="{{ 'active' if k.is_active == 1 else 'inactive' }}">
                         <td class="text-muted fw-bold">{{ loop.index }}</td>
                         <td>
                             <strong class="text-dark fs-6">{{ k.name }}</strong>
@@ -180,7 +180,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge badge-cycle">الدورة {{ k.current_cycle }}</span>
+                            <span class="badge badge-cycle">{{ k.get_cycle_label() }}</span>
                             <div class="text-muted small mt-1">
                                 زار {{ k.get_visited_mosques_in_cycle()|length }} مسجداً
                             </div>
@@ -232,7 +232,7 @@
         <!-- عرض الجوال (بطاقات) -->
         <div class="mobile-card-list d-md-none">
             {% for k in khatebs %}
-            <div class="mobile-item-card khateb-filter-item" data-search="{{ k.name|lower }} {{ k.phone }}" data-active="{{ 'active' if k.is_active == 1 else 'inactive' }}">
+            <div class="mobile-item-card khateb-filter-item" data-search="{{ k.name|lower }} {{ k.phone }} {{ k.get_active_cycle_topic()|lower }}" data-active="{{ 'active' if k.is_active == 1 else 'inactive' }}">
                 <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
                     <div class="d-flex align-items-start gap-2">
                         <span class="mobile-item-index">{{ loop.index }}</span>
@@ -259,7 +259,7 @@
 
                 <!-- شارات التوفر والدورة -->
                 <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
-                    <span class="badge badge-cycle">الدورة {{ k.current_cycle }} • زار {{ k.get_visited_mosques_in_cycle()|length }}</span>
+                    <span class="badge badge-cycle">{{ k.get_cycle_label() }} • زار {{ k.get_visited_mosques_in_cycle()|length }}</span>
                     {% if k.availability_mode == 'always' %}
                     <span class="badge bg-primary-subtle text-primary border border-primary-subtle">كل أسبوع</span>
                     {% else %}
@@ -338,10 +338,17 @@
                         </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold" id="km_password_label" for="km_password">كلمة المرور الخاصة بالخطيب *</label>
-                        <input type="text" name="password" id="km_password" class="form-control" value="123456" required>
-                        <small class="text-muted" id="km_password_hint">الافتراضي: 123456 (يمكن للخطيب تغييرها من ملفه لاحقاً)</small>
+                    <div class="row">
+                        <div class="col-12 col-md-6 mb-3">
+                            <label class="form-label fw-bold" id="km_password_label" for="km_password">كلمة المرور الخاصة بالخطيب *</label>
+                            <input type="text" name="password" id="km_password" class="form-control" value="123456" required>
+                            <small class="text-muted" id="km_password_hint">الافتراضي: 123456 (يمكن للخطيب تغييرها من ملفه لاحقاً)</small>
+                        </div>
+                        <div class="col-12 col-md-6 mb-3">
+                            <label class="form-label fw-bold" id="km_cycle_topic_label" for="km_cycle_topic">موضوع الخطبة للدورة الحالية (اختياري)</label>
+                            <input type="text" name="cycle_topic" id="km_cycle_topic" class="form-control" maxlength="200" placeholder="مثال: بر الوالدين (يظهر بجانب رقم الدورة)">
+                            <small class="text-muted" id="km_cycle_topic_hint">يُعرض في الشاشات مع رقم الدورة، ويعود للتسمية التلقائية عند انتهائها ما لم يُغيَّر.</small>
+                        </div>
                     </div>
 
                     {{ render_availability_fields('km', 'always', offset_next, offset_next, offset_after_next, next_friday, after_next_friday) }}
@@ -473,6 +480,9 @@ function openAddKhatebModal() {
     document.getElementById('km_password_label').textContent = 'كلمة المرور الخاصة بالخطيب *';
     document.getElementById('km_password_hint').textContent = 'الافتراضي: 123456 (يمكن للخطيب تغييرها من ملفه لاحقاً)';
 
+    document.getElementById('km_cycle_topic').value = '';
+    document.getElementById('km_cycle_topic_label').textContent = 'موضوع الخطبة للدورة 1 (اختياري)';
+
     const modeSelect = document.getElementById('km_availability_mode');
     modeSelect.value = 'always';
     document.getElementById('km_alternate_offset').value = DEFAULT_OFFSET_NEXT;
@@ -501,6 +511,10 @@ function openEditKhatebModal(khatebId) {
     pwInput.placeholder = 'اتركه فارغاً للإبقاء على كلمة المرور الحالية';
     document.getElementById('km_password_label').textContent = 'كلمة المرور (اختياري عند التعديل)';
     document.getElementById('km_password_hint').textContent = 'أدخل كلمة مرور جديدة فقط إذا أردت تغييرها.';
+
+    const cycleNum = data.current_cycle || 1;
+    document.getElementById('km_cycle_topic_label').textContent = `موضوع الخطبة للدورة ${cycleNum} (اختياري)`;
+    document.getElementById('km_cycle_topic').value = data.cycle_topic || '';
 
     const modeSelect = document.getElementById('km_availability_mode');
     modeSelect.value = data.availability_mode || 'always';

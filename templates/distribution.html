@@ -180,7 +180,7 @@
                             <div class="text-muted small"><i class="fa-solid fa-phone me-1"></i>{{ a.khateb.phone }}</div>
                         </td>
                         <td>
-                            <span class="badge badge-cycle">الدورة {{ a.cycle_number }}</span>
+                            <span class="badge badge-cycle">{{ a.khateb.get_cycle_label(a.cycle_number) }}</span>
                         </td>
                         <td>
                             {% if a.status == 'confirmed' %}
@@ -248,7 +248,7 @@
                             <i class="fa-solid fa-user-xmark me-1"></i> اعتذر
                         </span>
                         {% endif %}
-                        <span class="badge badge-cycle">الدورة {{ a.cycle_number }}</span>
+                        <span class="badge badge-cycle">{{ a.khateb.get_cycle_label(a.cycle_number) }}</span>
                     </div>
                 </div>
 
@@ -361,7 +361,7 @@
                         <td class="text-muted fw-bold">{{ loop.index }}</td>
                         <td class="fw-bold text-dark">{{ r.name }}</td>
                         <td class="text-muted"><i class="fa-solid fa-phone me-1 small"></i>{{ r.phone }}</td>
-                        <td><span class="badge badge-cycle">الدورة {{ r.current_cycle }}</span></td>
+                        <td><span class="badge badge-cycle">{{ r.get_cycle_label() }}</span></td>
                         <td>
                             <span class="text-muted small">
                                 زار {{ r.get_visited_mosques_in_cycle()|length }} مسجداً
@@ -387,7 +387,7 @@
                         <span class="mobile-item-index">{{ loop.index }}</span>
                         <span class="fw-bold text-dark">{{ r.name }}</span>
                     </div>
-                    <span class="badge badge-cycle">الدورة {{ r.current_cycle }}</span>
+                    <span class="badge badge-cycle">{{ r.get_cycle_label() }}</span>
                 </div>
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 small">
                     <a href="tel:{{ r.phone }}" class="phone-link">
@@ -449,51 +449,6 @@
 
 {% block extra_scripts %}
 <script>
-function showCopySuccessToast() {
-    const toastEl = document.getElementById('copyToast');
-    const toast = new bootstrap.Toast(toastEl, { delay: 3500 });
-    toast.show();
-}
-
-function fallbackCopyText(text) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.top = '-1000px';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    let ok = false;
-    try {
-        ok = document.execCommand('copy');
-    } catch (e) {
-        ok = false;
-    }
-    document.body.removeChild(ta);
-    return ok;
-}
-
-function copyWhatsApp() {
-    const text = document.getElementById('whatsappPayload').value;
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(() => {
-            showCopySuccessToast();
-        }).catch(() => {
-            if (fallbackCopyText(text)) {
-                showCopySuccessToast();
-            } else {
-                alert('تعذر النسخ التلقائي، يمكنك نسخه يدوياً.');
-            }
-        });
-    } else if (fallbackCopyText(text)) {
-        showCopySuccessToast();
-    } else {
-        alert('تعذر النسخ التلقائي، يمكنك نسخه يدوياً.');
-    }
-}
-
 function filterSchedules(mode, btn) {
     document.querySelectorAll('#scheduleFilterGroup button').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');

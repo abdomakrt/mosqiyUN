@@ -370,6 +370,7 @@ def khutbas():
             'initial_visited_mosques': k.get_initial_visited_mosques(),
             'system_visited_c1': system_visited_c1,
             'current_cycle': k.current_cycle,
+            'cycle_topic': k.get_active_cycle_topic(),
         }
 
     return render_template(
@@ -417,6 +418,7 @@ def add_khateb():
         unavailable_dates=json.dumps(unavailable_dates),
         current_cycle=1
     )
+    khateb.set_cycle_topic(request.form.get('cycle_topic', ''))
     khateb.set_password(password)
     db.session.add(khateb)
     db.session.commit()
@@ -461,8 +463,10 @@ def edit_khateb(khateb_id):
     initial_visited = [int(x) for x in request.form.getlist('initial_visited_mosques') if x.isdigit()]
     khateb.set_initial_visited_mosques(initial_visited)
 
-    # تحديث تواريخ الغياب/عدم التوفر
+    # تحديث تواريخ الغياب/عدم التوفر وموضوع الدورة
     khateb.set_unavailable_dates(parse_unavailable_dates_from_form(request.form))
+    if 'cycle_topic' in request.form:
+        khateb.set_cycle_topic(request.form.get('cycle_topic', ''))
 
     db.session.commit()
     flash('تم تحديث بيانات الخطيب بنجاح', 'success')
@@ -558,6 +562,35 @@ def get_unassigned_mosques(assignments, apologized_assignments, sched):
     return unassigned
 
 
+def build_whatsapp_schedule_text(target_date, assignments, unassigned_mosques, reserve_khatebs):
+    """إنشاء نص جدول التوزيع والاحتياط الجاهز للنسخ والمشاركة عبر الواتساب"""
+    wa_lines = [
+        "🕌 *جدول توزيع خطباء الجمعة*",
+        f"📅 *التاريخ:* الجمعة {target_date.strftime('%Y-%m-%d')}",
+        "────────────────────"
+    ]
+    if assignments:
+        wa_lines.append("📋 *المساجد والخطباء المكلفون:*")
+        for i, a in enumerate(assignments, 1):
+            status_tag = " (اعتذر)" if a.status == 'apologized' else ""
+            wa_lines.append(f"{i}. *{a.mosque.name}* ⬅️ الشيخ {a.khateb.name}{status_tag}")
+    else:
+        wa_lines.append("لم يتم التوزيع لهذه الجمعة بعد.")
+
+    if unassigned_mosques:
+        wa_lines.append("\n⚠️ *مساجد لم يتوفر لها خطباء (بحاجة لمعالجة):*")
+        for item in unassigned_mosques:
+            wa_lines.append(f"🔸 {item['mosque'].name} ({item['reason']})")
+
+    if reserve_khatebs:
+        wa_lines.append("\n📋 *جدول الخطباء الاحتياطي:*")
+        for r in reserve_khatebs:
+            wa_lines.append(f"▫️ الشيخ {r.name}")
+
+    wa_lines.append("\nجزاكم الله خيراً وبارك في جهودكم 🌿")
+    return "\n".join(wa_lines)
+
+
 def get_schedule_summaries(selected_date=None):
     """جلب ملخص جميع التوزيعات المنشأة للعرض والفلترة"""
     all_schedules = WeeklySchedule.query.order_by(WeeklySchedule.week_date.desc()).all()
@@ -594,33 +627,7 @@ def distribution():
 
     assignments, apologized_assignments, reserve_khatebs, sched = get_week_schedule_data(target_date)
     unassigned_mosques = get_unassigned_mosques(assignments, apologized_assignments, sched)
-
-    # نص الواتساب الجاهز للنسخ
-    wa_lines = [
-        "🕌 *جدول توزيع خطباء الجمعة*",
-        f"📅 *التاريخ:* الجمعة {target_date.strftime('%Y-%m-%d')}",
-        "────────────────────"
-    ]
-    if assignments:
-        wa_lines.append("📋 *المساجد والخطباء المكلفون:*")
-        for i, a in enumerate(assignments, 1):
-            status_tag = " (اعتذر)" if a.status == 'apologized' else ""
-            wa_lines.append(f"{i}. *{a.mosque.name}* ⬅️ الشيخ {a.khateb.name}{status_tag}")
-    else:
-        wa_lines.append("لم يتم التوزيع لهذه الجمعة بعد.")
-
-    if unassigned_mosques:
-        wa_lines.append("\n⚠️ *مساجد لم يتوفر لها خطباء (بحاجة لمعالجة):*")
-        for item in unassigned_mosques:
-            wa_lines.append(f"🔸 {item['mosque'].name} ({item['reason']})")
-
-    if reserve_khatebs:
-        wa_lines.append("\n📋 *جدول الخطباء الاحتياطي:*")
-        for r in reserve_khatebs:
-            wa_lines.append(f"▫️ الشيخ {r.name}")
-
-    wa_lines.append("\nجزاكم الله خيراً وبارك في جهودكم 🌿")
-    whatsapp_text = "\n".join(wa_lines)
+    whatsapp_text = build_whatsapp_schedule_text(target_date, assignments, unassigned_mosques, reserve_khatebs)
 
     # جميع الأسابيع الموزعة سابقاً مع إحصائياتها للفلترة والتنقل السريع
     all_schedules, schedule_items = get_schedule_summaries(selected_date=target_date)
@@ -752,6 +759,9 @@ def my_portal():
 
     week_assignments, week_apologized, week_reserves, week_sched = get_week_schedule_data(selected_week_date)
     week_unassigned_mosques = get_unassigned_mosques(week_assignments, week_apologized, week_sched)
+    whatsapp_text = build_whatsapp_schedule_text(
+        selected_week_date, week_assignments, week_unassigned_mosques, week_reserves
+    )
     _, schedule_items = get_schedule_summaries(selected_date=selected_week_date)
 
     # إحصائيات الدورة الحالية
@@ -771,6 +781,7 @@ def my_portal():
         week_assignments=week_assignments,
         week_reserves=week_reserves,
         week_unassigned_mosques=week_unassigned_mosques,
+        whatsapp_text=whatsapp_text,
         week_has_schedule=bool(week_assignments or week_apologized or week_sched),
         schedule_items=schedule_items,
         total_allowed=total_allowed,
@@ -830,6 +841,8 @@ def my_profile():
         khateb.set_initial_visited_mosques(initial_visited)
 
         khateb.set_unavailable_dates(parse_unavailable_dates_from_form(request.form))
+        if 'cycle_topic' in request.form:
+            khateb.set_cycle_topic(request.form.get('cycle_topic', ''))
 
         new_pw = request.form.get('new_password', '').strip()
         if new_pw:
@@ -1218,6 +1231,8 @@ def ensure_schema(db_file=None):
         'khateb': [
             ('unavailable_dates', "TEXT DEFAULT '[]'"),
             ('current_cycle', 'INTEGER DEFAULT 1'),
+            ('cycle_topic', "TEXT DEFAULT ''"),
+            ('cycle_topic_number', 'INTEGER'),
             ('initial_visited_mosques', "TEXT DEFAULT '[]'")
         ],
         'assignment': [

@@ -131,17 +131,26 @@
                         </h5>
                         <small class="text-muted">يمكنك استعراض جدول الجمعة القادمة بالكامل أو التنقل بين جميع التوزيعات التي أنشأتها الإدارة</small>
                     </div>
-                    {% if schedule_items %}
-                    <div class="btn-group btn-group-sm align-self-start align-self-md-center" role="group" id="myScheduleFilterGroup">
-                        <button type="button" class="btn btn-outline-success active" onclick="filterMySchedules('all', this)">
-                            الكل ({{ schedule_items|length }})
+                    {% if schedule_items or week_assignments %}
+                    <div class="d-flex flex-wrap align-items-center gap-2 align-self-start align-self-md-center">
+                        {% if week_assignments or week_has_schedule %}
+                        <button type="button" class="btn btn-success btn-sm btn-touch-mobile shadow-sm px-3 text-nowrap" id="myCopyWhatsAppBtn" onclick="copyWhatsApp()">
+                            <i class="fa-brands fa-whatsapp me-1"></i> نسخ للواتساب
                         </button>
-                        <button type="button" class="btn btn-outline-success" onclick="filterMySchedules('upcoming', this)">
-                            القادمة ({{ schedule_items | rejectattr('is_past') | list | length }})
-                        </button>
-                        <button type="button" class="btn btn-outline-success" onclick="filterMySchedules('past', this)">
-                            السابقة ({{ schedule_items | selectattr('is_past') | list | length }})
-                        </button>
+                        {% endif %}
+                        {% if schedule_items %}
+                        <div class="btn-group btn-group-sm" role="group" id="myScheduleFilterGroup">
+                            <button type="button" class="btn btn-outline-success active" onclick="filterMySchedules('all', this)">
+                                الكل ({{ schedule_items|length }})
+                            </button>
+                            <button type="button" class="btn btn-outline-success" onclick="filterMySchedules('upcoming', this)">
+                                القادمة ({{ schedule_items | rejectattr('is_past') | list | length }})
+                            </button>
+                            <button type="button" class="btn btn-outline-success" onclick="filterMySchedules('past', this)">
+                                السابقة ({{ schedule_items | selectattr('is_past') | list | length }})
+                            </button>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
@@ -303,7 +312,7 @@
                     <h5 class="fw-bold mb-0 text-dark fs-6 fs-md-5">
                         <i class="fa-solid fa-route text-primary me-2"></i> تقدم الدورة الحالية
                     </h5>
-                    <span class="badge badge-cycle fs-6">الدورة رقم {{ khateb.current_cycle }}</span>
+                    <span class="badge badge-cycle fs-6">{{ khateb.get_cycle_label() }}</span>
                 </div>
             </div>
             <div class="card-body p-3 p-md-4 pt-1">
@@ -396,6 +405,21 @@
         </div>
         {% endif %}
 
+    </div>
+</div>
+
+<!-- منطقة نص الواتساب المخفي للنسخ السريع -->
+<textarea id="whatsappPayload" style="display:none;">{{ whatsapp_text }}</textarea>
+
+<!-- Toast للإشعار عند النسخ -->
+<div class="position-fixed bottom-0 start-50 translate-middle-x p-3 toast-above-nav" style="z-index: 1080; width: min(94vw, 440px);">
+    <div id="copyToast" class="toast align-items-center text-white bg-success border-0 shadow w-100" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body fs-6">
+                <i class="fa-solid fa-check-double me-2"></i> تم نسخ جدول التوزيع والاحتياط بنجاح! جاهز للصق في واتساب.
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
     </div>
 </div>
 {% endblock %}
